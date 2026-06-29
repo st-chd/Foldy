@@ -38,22 +38,23 @@ const LORE_SORT_VALUE = 'folderizer';
 const DEFAULT_PICKER_COLOR = '#7c6ee6';
 const BUNDLE_KIND = 'folderizer-bundle';
 const BUNDLE_VERSION = 1;
+const DEBUG_LOG_LIMIT = 200;
 
 const REGEX_TYPES = {
     global: {
         scriptType: SCRIPT_TYPES.GLOBAL,
         selector: '#saved_regex_scripts',
-        label: 'Global',
+        label: '글로벌',
     },
     scoped: {
         scriptType: SCRIPT_TYPES.SCOPED,
         selector: '#saved_scoped_scripts',
-        label: 'Scoped',
+        label: '범위',
     },
     preset: {
         scriptType: SCRIPT_TYPES.PRESET,
         selector: '#saved_preset_scripts',
-        label: 'Preset',
+        label: '프리셋',
     },
 };
 
@@ -70,6 +71,8 @@ let sortingLore = false;
 let sortingRegex = false;
 let originalPromptRenderItems = null;
 let originalPromptMakeDraggable = null;
+let debugListenersInstalled = false;
+const debugLogEntries = [];
 
 function settings() {
     extension_settings.folderizer ??= {};
@@ -89,7 +92,97 @@ function settings() {
     value.collapsed.prompt ??= {};
     value.collapsed.lore ??= {};
     value.collapsed.regex ??= {};
+    value.debug ??= false;
     return value;
+}
+
+function debugEnabled() {
+    return settings().debug === true;
+}
+
+function formatDebugDetail(detail) {
+    if (detail instanceof Error) return `${detail.name}: ${detail.message}\n${detail.stack || ''}`.trim();
+    if (typeof detail === 'string') return detail;
+    try {
+        return JSON.stringify(detail, null, 2);
+    } catch {
+        return String(detail);
+    }
+}
+
+function debugLog(level, message, detail = null) {
+    if (!debugEnabled() && level !== 'error') return;
+    debugLogEntries.push({
+        time: new Date().toLocaleString(),
+        level,
+        message,
+        detail: detail == null ? '' : formatDebugDetail(detail),
+    });
+    if (debugLogEntries.length > DEBUG_LOG_LIMIT) debugLogEntries.splice(0, debugLogEntries.length - DEBUG_LOG_LIMIT);
+    const method = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'debug';
+    console[method]?.(`[${EXTENSION_NAME}] ${message}`, detail ?? '');
+}
+
+function debugText() {
+    const state = settings();
+    const header = [
+        `Folderizer ${state.debug ? 'debug on' : 'debug off'}`,
+        `time: ${new Date().toLocaleString()}`,
+        `features: prompts=${featureEnabled('prompts')}, lorebooks=${featureEnabled('lorebooks')}, regex=${featureEnabled('regex')}`,
+        'userAgent:',
+        navigator.userAgent,
+    ].join('\n');
+    if (!debugLogEntries.length) return `${header}\n\n아직 기록된 Folderizer 디버그 로그가 없습니다.`;
+    const body = debugLogEntries.map(entry => {
+        const detail = entry.detail ? `\n${entry.detail}` : '';
+        return `[${entry.time}] [${entry.level.toUpperCase()}] ${entry.message}${detail}`;
+    }).join('\n\n');
+    return `${header}\n\n${body}`;
+}
+
+async function copyDebugLog() {
+    const text = debugText();
+    try {
+        await navigator.clipboard.writeText(text);
+        toastr.success('Folderizer 디버그 로그를 복사했습니다.');
+    } catch (error) {
+        console.error(`[${EXTENSION_NAME}] Failed to copy debug log`, error);
+        const area = document.createElement('textarea');
+        area.className = 'folderizer-debug-copy';
+        area.value = text;
+        await new Popup(area, POPUP_TYPE.TEXT, 'Folderizer 디버그 로그').show();
+    }
+}
+
+async function showDebugLog() {
+    const wrap = document.createElement('div');
+    wrap.className = 'folderizer-debug-view';
+    const pre = document.createElement('pre');
+    pre.textContent = debugText();
+    wrap.append(pre);
+    await new Popup(wrap, POPUP_TYPE.TEXT, 'Folderizer 디버그 로그', {
+        wide: true,
+        large: true,
+    }).show();
+}
+
+function installDebugListeners() {
+    if (debugListenersInstalled) return;
+    debugListenersInstalled = true;
+    window.addEventListener('error', event => {
+        if (!debugEnabled()) return;
+        debugLog('error', '브라우저 오류', {
+            message: event.message,
+            source: event.filename,
+            line: event.lineno,
+            column: event.colno,
+            error: event.error?.stack || event.error?.message || '',
+        });
+    });
+    window.addEventListener('unhandledrejection', event => {
+        if (!debugEnabled()) return;
+        debugLog('error', '처리되지 않은 Promise 오류', event.reason);
+    });
 }
 
 function featureEnabled(name) {
@@ -187,16 +280,31 @@ function createLabeledIconButton(icon, title, label, className = '') {
 }
 
 function isHexColor(value) {
-    return /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value ?? '').trim());
+    return /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(String(value ?? '').trim());
+}
+
+function isColorValue(value) {
+    const color = String(value ?? '').trim();
+    return color.toLowerCase() === 'transparent'
+        || isHexColor(color)
+        || globalThis.CSS?.supports?.('color', color)
+        || false;
 }
 
 function normalizeColor(value, fallback = '') {
     const color = String(value ?? '').trim();
-    if (!isHexColor(color)) return fallback;
-    if (color.length === 4) {
-        return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toLowerCase();
+    if (!color) return fallback;
+    if (color.toLowerCase() === 'transparent') return 'transparent';
+    if (isHexColor(color) && (color.length === 4 || color.length === 5)) {
+        return `#${[...color.slice(1)].map(part => `${part}${part}`).join('')}`.toLowerCase();
     }
-    return color.toLowerCase();
+    if (isHexColor(color)) return color.toLowerCase();
+    return globalThis.CSS?.supports?.('color', color) ? color : fallback;
+}
+
+function pickerColor(value, fallback = DEFAULT_PICKER_COLOR) {
+    const color = normalizeColor(value, fallback);
+    return color === 'transparent' ? 'rgba(0, 0, 0, 0)' : color;
 }
 
 function cssColorToHex(value, fallback = DEFAULT_PICKER_COLOR) {
@@ -228,22 +336,24 @@ function createColorSetting(labelText, initialValue, pickerFallback = DEFAULT_PI
     const controls = document.createElement('span');
     controls.className = 'folderizer-color-controls';
 
-    const picker = document.createElement('input');
-    picker.type = 'color';
-    picker.value = normalizeColor(initialValue, pickerFallback);
+    const picker = document.createElement('toolcool-color-picker');
+    picker.setAttribute('color', pickerColor(initialValue, pickerFallback));
 
     const hex = document.createElement('input');
     hex.type = 'text';
     hex.value = normalizeColor(initialValue);
-    hex.placeholder = 'default, #fff';
+    hex.placeholder = 'default, transparent, rgba(...)';
     hex.spellcheck = false;
 
-    picker.addEventListener('input', () => {
-        hex.value = picker.value;
+    picker.addEventListener('change', event => {
+        hex.value = event.detail?.rgba || picker.getAttribute('color') || '';
     });
     hex.addEventListener('input', () => {
         const value = normalizeColor(hex.value);
-        if (value) picker.value = value;
+        if (!value) return;
+        const next = pickerColor(value, pickerFallback);
+        picker.setAttribute('color', next);
+        picker.color = next;
     });
 
     controls.append(picker, hex);
@@ -252,7 +362,7 @@ function createColorSetting(labelText, initialValue, pickerFallback = DEFAULT_PI
     return {
         field,
         value: () => normalizeColor(hex.value),
-        isValid: () => !hex.value.trim() || isHexColor(hex.value),
+        isValid: () => !hex.value.trim() || isColorValue(hex.value),
     };
 }
 
@@ -275,7 +385,7 @@ function setStateButtonIcon(button, state) {
     button.classList.toggle('fa-toggle-off', state === 'off');
     button.classList.toggle('fa-circle-half-stroke', state === 'mixed');
     button.dataset.state = state;
-    button.title = state === 'on' ? 'Disable all items in this folder' : 'Enable all items in this folder';
+    button.title = state === 'on' ? '이 폴더의 모든 항목 비활성화' : '이 폴더의 모든 항목 활성화';
 }
 
 function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null }) {
@@ -293,7 +403,7 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
 
     const drag = document.createElement('span');
     drag.className = 'folderizer-drag drag-handle fa-solid fa-bars';
-    drag.title = 'Move folder';
+    drag.title = '폴더 이동';
 
     const name = document.createElement('span');
     name.className = 'folderizer-folder-name';
@@ -304,13 +414,13 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
     count.className = 'folderizer-folder-count';
     count.textContent = String(folder.items.length);
 
-    const edit = createIconButton('fa-pencil', 'Edit folder');
+    const edit = createIconButton('fa-pencil', '폴더 편집');
     edit.addEventListener('click', () => onEdit(folder.id));
 
-    const remove = createIconButton('fa-trash', 'Delete folder', 'caution');
+    const remove = createIconButton('fa-trash', '폴더 삭제', 'caution');
     remove.addEventListener('click', () => onDelete(folder.id));
 
-    const collapse = createIconButton('fa-chevron-down', 'Collapse folder');
+    const collapse = createIconButton('fa-chevron-down', '폴더 접기');
     collapse.classList.add('folderizer-collapse-toggle');
     const items = document.createElement(kind === 'regex' ? 'div' : 'ul');
     items.className = `folderizer-folder-items folderizer-${kind}-items`;
@@ -334,7 +444,7 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
     header.append(drag, collapse);
     if (onStateToggle) {
         header.classList.add('has-state-toggle');
-        const stateButton = createIconButton('fa-toggle-off', 'Toggle folder items', 'folderizer-state-toggle');
+        const stateButton = createIconButton('fa-toggle-off', '폴더 항목 켜기/끄기', 'folderizer-state-toggle');
         setStateButtonIcon(stateButton, state);
         stateButton.addEventListener('click', async event => {
             event.preventDefault();
@@ -354,14 +464,85 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
 }
 
 async function requestFolderName(layout, currentName = '', currentId = null) {
-    const value = await Popup.show.input(currentId ? 'Rename folder' : 'New folder', 'Folder name', currentName);
+    const value = await Popup.show.input(currentId ? '폴더 이름 변경' : '새 폴더', '폴더 이름', currentName);
     const name = String(value ?? '').trim();
     if (!name) return null;
     if (hasDuplicateFolderName(layout, name, currentId)) {
-        toastr.warning('A folder with that name already exists.');
+        toastr.warning('같은 이름의 폴더가 이미 있습니다.');
         return null;
     }
     return name;
+}
+
+async function requestNewFolder(layout, candidates = []) {
+    const form = document.createElement('div');
+    form.className = 'folderizer-edit-form folderizer-create-form';
+
+    const title = document.createElement('div');
+    title.className = 'folderizer-edit-title';
+    title.textContent = '새 폴더';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = '폴더 이름';
+    nameInput.autofocus = true;
+
+    const nameField = document.createElement('label');
+    nameField.className = 'folderizer-text-field';
+    const nameLabel = document.createElement('span');
+    nameLabel.textContent = '이름';
+    nameField.append(nameLabel, nameInput);
+
+    form.append(title, nameField);
+
+    const selectable = candidates.filter(candidate => candidate?.id && candidate?.label);
+    if (selectable.length) {
+        const group = document.createElement('div');
+        group.className = 'folderizer-create-items';
+        const groupTitle = document.createElement('div');
+        groupTitle.className = 'folderizer-create-items-title';
+        groupTitle.textContent = '폴더에 넣을 항목';
+        const list = document.createElement('div');
+        list.className = 'folderizer-create-items-list';
+        selectable.forEach(candidate => {
+            const label = document.createElement('label');
+            label.className = 'checkbox flex-container';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = String(candidate.id);
+            const text = document.createElement('span');
+            text.textContent = candidate.label;
+            text.title = candidate.label;
+            label.append(checkbox, text);
+            list.append(label);
+        });
+        group.append(groupTitle, list);
+        form.append(group);
+    }
+
+    const popup = new Popup(form, POPUP_TYPE.CONFIRM, '', {
+        okButton: '만들기',
+        cancelButton: '취소',
+        wide: true,
+        onClosing: value => {
+            if (value.result !== POPUP_RESULT.AFFIRMATIVE) return true;
+            const name = nameInput.value.trim();
+            if (!name) {
+                toastr.warning('폴더 이름은 비워둘 수 없습니다.');
+                return false;
+            }
+            if (hasDuplicateFolderName(layout, name)) {
+                toastr.warning('같은 이름의 폴더가 이미 있습니다.');
+                return false;
+            }
+            return true;
+        },
+    });
+    const result = await popup.show();
+    if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
+    const itemIds = [...form.querySelectorAll('.folderizer-create-items input[type="checkbox"]:checked')]
+        .map(input => String(input.value));
+    return { name: nameInput.value.trim(), itemIds };
 }
 
 async function requestFolderSettings(layout, folder) {
@@ -370,43 +551,43 @@ async function requestFolderSettings(layout, folder) {
 
     const title = document.createElement('div');
     title.className = 'folderizer-edit-title';
-    title.textContent = 'Folder settings';
+    title.textContent = '폴더 설정';
 
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.value = folder.name;
-    nameInput.placeholder = 'Folder name';
+    nameInput.placeholder = '폴더 이름';
     nameInput.autofocus = true;
 
     const nameField = document.createElement('label');
     nameField.className = 'folderizer-text-field';
     const nameLabel = document.createElement('span');
-    nameLabel.textContent = 'Name';
+    nameLabel.textContent = '이름';
     nameField.append(nameLabel, nameInput);
 
-    const backgroundColor = createColorSetting('Background', folder.color, themeColorHex('--SmartThemeBlurTintColor'));
-    const borderColor = createColorSetting('Border', folder.borderColor, themeColorHex('--SmartThemeBorderColor'));
-    const nameColor = createColorSetting('Name color', folder.nameColor, themeColorHex('--SmartThemeBodyColor', '#ffffff'));
+    const backgroundColor = createColorSetting('배경색', folder.color, themeColorHex('--SmartThemeBlurTintColor'));
+    const borderColor = createColorSetting('테두리색', folder.borderColor, themeColorHex('--SmartThemeBorderColor'));
+    const nameColor = createColorSetting('이름 색상', folder.nameColor, themeColorHex('--SmartThemeBodyColor', '#ffffff'));
 
     form.append(title, nameField, backgroundColor.field, borderColor.field, nameColor.field);
 
     const popup = new Popup(form, POPUP_TYPE.CONFIRM, '', {
-        okButton: 'Save',
-        cancelButton: 'Cancel',
+        okButton: '저장',
+        cancelButton: '취소',
         wide: true,
         onClosing: value => {
             if (value.result !== POPUP_RESULT.AFFIRMATIVE) return true;
             const name = nameInput.value.trim();
             if (!name) {
-                toastr.warning('Folder name cannot be empty.');
+                toastr.warning('폴더 이름은 비워둘 수 없습니다.');
                 return false;
             }
             if (hasDuplicateFolderName(layout, name, folder.id)) {
-                toastr.warning('A folder with that name already exists.');
+                toastr.warning('같은 이름의 폴더가 이미 있습니다.');
                 return false;
             }
             if (![backgroundColor, borderColor, nameColor].every(setting => setting.isValid())) {
-                toastr.warning('Use HEX colors like #fff or #ffffff, or leave the field empty for the UI default.');
+                toastr.warning('transparent, #fff, #ffff, #ffffff, #ffffffff 형식으로 입력하거나 기본값을 쓰려면 비워두세요.');
                 return false;
             }
             return true;
@@ -426,7 +607,7 @@ async function requestFolderSettings(layout, folder) {
 
 async function requestMoveTarget(layout, itemId) {
     if (!layout.folders.length) {
-        toastr.info('Create a folder first.');
+        toastr.info('먼저 폴더를 만들어 주세요.');
         return null;
     }
 
@@ -437,17 +618,17 @@ async function requestMoveTarget(layout, itemId) {
 
     const title = document.createElement('div');
     title.className = 'folderizer-edit-title';
-    title.textContent = 'Move to folder';
+    title.textContent = '폴더로 이동';
 
     const label = document.createElement('label');
     const text = document.createElement('span');
-    text.textContent = 'Destination';
+    text.textContent = '대상';
     const select = document.createElement('select');
     select.className = 'text_pole';
 
     const rootOption = document.createElement('option');
     rootOption.value = '';
-    rootOption.textContent = 'Root (no folder)';
+    rootOption.textContent = '최상위 (폴더 없음)';
     select.append(rootOption);
     for (const folder of layout.folders) {
         const option = document.createElement('option');
@@ -460,8 +641,8 @@ async function requestMoveTarget(layout, itemId) {
     form.append(title, label);
 
     const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
-        okButton: 'Move',
-        cancelButton: 'Cancel',
+        okButton: '이동',
+        cancelButton: '취소',
     }).show();
 
     return result === POPUP_RESULT.AFFIRMATIVE ? select.value : null;
@@ -492,9 +673,26 @@ function moveItemToFolder(layout, itemId, folderId) {
     return true;
 }
 
+function rootItemIds(layout) {
+    return layout.root
+        .filter(node => node?.type === 'item' && node.id)
+        .map(node => String(node.id));
+}
+
+function addFolderWithItems(layout, folderName, itemIds = []) {
+    const selected = new Set(itemIds.map(String));
+    const folder = { id: generateUUID(), name: folderName, color: '', items: [...selected] };
+    layout.folders.push(folder);
+    layout.root = [
+        { type: 'folder', id: folder.id },
+        ...layout.root.filter(node => node?.type !== 'item' || !selected.has(String(node.id))),
+    ];
+    return folder;
+}
+
 function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
     if (!element || element.querySelector(':scope .folderizer-move-to-folder') || !layout.folders.length) return;
-    const title = 'Move to folder';
+    const title = '폴더로 이동';
     const button = kind === 'prompt' ? document.createElement('span') : createIconButton('fa-folder-open', title, 'folderizer-move-to-folder');
     if (kind === 'prompt') {
         button.className = 'fa-solid fa-folder-open folderizer-move-to-folder';
@@ -535,7 +733,7 @@ function ensureToolbar(parent, key, onCreate, extra = []) {
     const toolbar = document.createElement('div');
     toolbar.className = 'folderizer-toolbar';
     toolbar.dataset.folderizerToolbar = key;
-    const create = createLabeledIconButton('fa-folder-plus', 'New folder', 'New Folder', 'folderizer-create-folder');
+    const create = createLabeledIconButton('fa-folder-plus', '새 폴더', '새 폴더', 'folderizer-create-folder');
     create.addEventListener('click', onCreate);
     toolbar.append(create, ...extra);
     parent.prepend(toolbar);
@@ -593,7 +791,8 @@ async function readJsonFile() {
                 settle(JSON.parse(await file.text()));
             } catch (error) {
                 console.error(`[${EXTENSION_NAME}] Failed to read bundle`, error);
-                toastr.error('Could not read Folderizer bundle.');
+                debugLog('error', '번들 파일 읽기 실패', error);
+                toastr.error('Folderizer 번들을 읽을 수 없습니다.');
                 settle(null);
             }
         }, { once: true });
@@ -603,15 +802,15 @@ async function readJsonFile() {
 
 function assertBundle(bundle, scope) {
     if (bundle?.kind !== BUNDLE_KIND || bundle?.scope !== scope) {
-        toastr.error('This is not a matching Folderizer bundle.');
+        toastr.error('현재 항목에 맞는 Folderizer 번들이 아닙니다.');
         return false;
     }
     if (bundle.version > BUNDLE_VERSION) {
-        toastr.error('This Folderizer bundle was created by a newer version of Folderizer.');
+        toastr.error('이 Folderizer 번들은 더 새로운 버전에서 만들어졌습니다.');
         return false;
     }
     if (bundle.version !== BUNDLE_VERSION) {
-        toastr.error('This Folderizer bundle version is not supported.');
+        toastr.error('지원하지 않는 Folderizer 번들 버전입니다.');
         return false;
     }
     return true;
@@ -664,8 +863,8 @@ function mergeImportedLayout(currentLayout, importedLayout, allIds) {
 }
 
 function createBundleButtons(onExport, onImport) {
-    const exportButton = createIconCodeButton('f0ee', 'Export Folderizer bundle', 'folderizer-bundle-button');
-    const importButton = createIconCodeButton('f0ed', 'Import Folderizer bundle', 'folderizer-bundle-button');
+    const exportButton = createIconCodeButton('f0ee', 'Folderizer 번들 내보내기', 'folderizer-bundle-button');
+    const importButton = createIconCodeButton('f0ed', 'Folderizer 번들 불러오기', 'folderizer-bundle-button');
     exportButton.addEventListener('click', async event => {
         event.preventDefault();
         event.stopPropagation();
@@ -742,26 +941,26 @@ async function exportPromptBundle(manager = promptManager) {
         prompts,
         promptOrder,
     }, bundleFilename(presetName));
-    toastr.success('Folderizer prompt bundle exported.');
+    toastr.success('Folderizer 프롬프트 번들을 내보냈습니다.');
 }
 
 async function importPromptBundle(manager = promptManager) {
     const bundle = await readJsonFile();
     if (!bundle || !assertBundle(bundle, 'prompts')) return;
     if (!Array.isArray(bundle.prompts) || !Array.isArray(bundle.promptOrder)) {
-        toastr.error('Folderizer prompt bundle is missing prompt data.');
+        toastr.error('Folderizer 프롬프트 번들에 프롬프트 데이터가 없습니다.');
         return;
     }
     const presetManager = promptPresetManager();
     const presetName = promptBundlePresetName(bundle);
     if (!presetName) {
-        toastr.error('Folderizer prompt bundle is missing a preset name.');
+        toastr.error('Folderizer 프롬프트 번들에 프리셋 이름이 없습니다.');
         return;
     }
     const exists = presetManager?.getAllPresets?.().includes(presetName);
-    const confirmed = await Popup.show.confirm('Import prompt bundle', exists
-        ? `Replace the existing prompt preset "${presetName}" with this Folderizer bundle?`
-        : `Create a new prompt preset "${presetName}" from this Folderizer bundle?`);
+    const confirmed = await Popup.show.confirm('프롬프트 번들 불러오기', exists
+        ? `기존 프롬프트 프리셋 "${presetName}"을 이 Folderizer 번들로 덮어쓸까요?`
+        : `이 Folderizer 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?`);
     if (!confirmed) return;
 
     const presetSettings = cloneJson(bundle.presetSettings || presetManager?.getPresetSettings?.(presetName) || {});
@@ -787,7 +986,7 @@ async function importPromptBundle(manager = promptManager) {
         if (existing) {
             imported.identifier = existing.identifier;
         } else if (!imported.identifier || usedIds.has(String(imported.identifier))) {
-            imported.identifier = crypto.randomUUID();
+            imported.identifier = generateUUID();
         }
         const targetId = String(imported.identifier);
         idMap.set(sourceId, targetId);
@@ -816,7 +1015,7 @@ async function importPromptBundle(manager = promptManager) {
     saveSettingsDebounced();
     await manager.saveServiceSettings();
     manager.render(false);
-    toastr.success('Folderizer prompt bundle imported.');
+    toastr.success('Folderizer 프롬프트 번들을 불러왔습니다.');
 }
 
 function promptLayoutFromDom(list, sourceLayout, { preserveFolderIds = new Set(), normalizeOptions = {} } = {}) {
@@ -881,7 +1080,8 @@ function setupPromptSortables(manager) {
             await persistPromptLayout(promptOwnerKey(), next, manager);
         } catch (error) {
             console.error(`[${EXTENSION_NAME}] Failed to save prompt folder order`, error);
-            toastr.error('Failed to save prompt folder order.');
+            debugLog('error', '프롬프트 폴더 순서 저장 실패', error);
+            toastr.error('프롬프트 폴더 순서를 저장하지 못했습니다.');
             manager.render(false);
         } finally {
             saving = false;
@@ -932,7 +1132,8 @@ function setupPromptSortables(manager) {
         setTimeout(() => {
             task().catch(error => {
                 console.error(`[${EXTENSION_NAME}] Failed to finish prompt folder sort`, error);
-                toastr.error('Failed to save prompt folder order.');
+                debugLog('error', '프롬프트 폴더 정렬 완료 처리 실패', error);
+                toastr.error('프롬프트 폴더 순서를 저장하지 못했습니다.');
                 manager.render(false);
             });
         }, 0);
@@ -1044,7 +1245,7 @@ async function enhancePromptList(manager) {
     };
     const onDelete = async id => {
         const folder = currentPromptLayout.folders.find(value => value.id === id);
-        if (!folder || !await Popup.show.confirm('Delete folder', `Delete "${folder.name}" and keep its prompts at the root?`)) return;
+        if (!folder || !await Popup.show.confirm('폴더 삭제', `"${folder.name}" 폴더를 삭제하고 안의 프롬프트는 최상위로 옮길까요?`)) return;
         removeFolder(currentPromptLayout, id);
         currentPromptLayout = normalizeLayout(currentPromptLayout, promptOrderIds(manager), { preserveUnrootedFolders: false });
         await persistPromptLayout(owner, currentPromptLayout, manager);
@@ -1094,11 +1295,16 @@ async function enhancePromptList(manager) {
     }
 
     ensureToolbar(list.closest('.range-block'), 'prompt', async () => {
-        const name = await requestFolderName(currentPromptLayout);
-        if (!name) return;
-        const folder = { id: crypto.randomUUID(), name, color: '', items: [] };
-        currentPromptLayout.folders.push(folder);
-        currentPromptLayout.root.unshift({ type: 'folder', id: folder.id });
+        const promptsById = new Map((manager.serviceSettings.prompts || [])
+            .filter(prompt => prompt?.identifier)
+            .map(prompt => [String(prompt.identifier), prompt]));
+        const candidates = rootItemIds(currentPromptLayout).map(id => ({
+            id,
+            label: promptsById.get(id)?.name || id,
+        }));
+        const values = await requestNewFolder(currentPromptLayout, candidates);
+        if (!values) return;
+        addFolderWithItems(currentPromptLayout, values.name, values.itemIds);
         await persistPromptLayout(owner, currentPromptLayout, manager);
         rerender();
     }, createBundleButtons(() => exportPromptBundle(manager), () => importPromptBundle(manager)));
@@ -1112,13 +1318,13 @@ async function installPromptIntegration() {
     if (manager.__folderizerInstalled) return;
     manager.__folderizerInstalled = true;
 
-    manager.renderPromptManagerListItems = async function () {
-        await originalPromptRenderItems();
+    manager.renderPromptManagerListItems = async function (...args) {
+        await originalPromptRenderItems.apply(this, args);
         if (featureEnabled('prompts')) await enhancePromptList(manager);
     };
-    manager.makeDraggable = function () {
+    manager.makeDraggable = function (...args) {
         if (featureEnabled('prompts')) setupPromptSortables(manager);
-        else originalPromptMakeDraggable();
+        else originalPromptMakeDraggable.apply(this, args);
     };
     manager.render(false);
 }
@@ -1156,6 +1362,17 @@ function matchesLoreQuery(entry, query) {
     return query.toLocaleLowerCase().split(/\s+/).every(term => haystack.includes(term));
 }
 
+function loreEntryLabel(entry) {
+    if (!entry) return '';
+    const comment = String(entry.comment || '').trim();
+    if (comment) return comment;
+    const keys = Array.isArray(entry.key) ? entry.key.filter(Boolean).join(', ') : '';
+    if (keys) return keys;
+    const content = String(entry.content || '').trim().replace(/\s+/g, ' ');
+    if (content) return content.slice(0, 80);
+    return `UID ${entry.uid}`;
+}
+
 async function persistLoreLayout(owner, layout) {
     settings().layouts.lorebooks[owner] = layout;
     saveSettingsDebounced();
@@ -1165,7 +1382,7 @@ async function createLorebookFolder() {
     if (!featureEnabled('lorebooks')) return;
     const name = selectedLorebookName();
     if (!name) {
-        toastr.warning('Select a lorebook first.');
+        toastr.warning('먼저 로어북을 선택해 주세요.');
         return;
     }
 
@@ -1175,12 +1392,17 @@ async function createLorebookFolder() {
         .filter(entry => entry && typeof entry === 'object')
         .map(entry => String(entry.uid));
     const layout = normalizeLayout(settings().layouts.lorebooks[name], allIds);
-    const folderName = await requestFolderName(layout);
-    if (!folderName) return;
+    const entriesById = new Map(Object.values(data.entries)
+        .filter(entry => entry && typeof entry === 'object')
+        .map(entry => [String(entry.uid), entry]));
+    const candidates = rootItemIds(layout)
+        .map(id => entriesById.get(id))
+        .filter(Boolean)
+        .map(entry => ({ id: String(entry.uid), label: loreEntryLabel(entry) }));
+    const values = await requestNewFolder(layout, candidates);
+    if (!values) return;
 
-    const folder = { id: crypto.randomUUID(), name: folderName, color: '', items: [] };
-    layout.folders.push(folder);
-    layout.root.unshift({ type: 'folder', id: folder.id });
+    addFolderWithItems(layout, values.name, values.itemIds);
     await persistLoreLayout(name, layout);
 
     const sort = document.getElementById('world_info_sort_order');
@@ -1200,7 +1422,7 @@ function loreEntryIds(data) {
 async function exportLorebookBundle() {
     const name = selectedLorebookName();
     if (!name) {
-        toastr.warning('Select a lorebook first.');
+        toastr.warning('먼저 로어북을 선택해 주세요.');
         return;
     }
     const data = await loadWorldInfo(name);
@@ -1216,25 +1438,25 @@ async function exportLorebookBundle() {
         layout: cloneJson(layout),
         data: cloneJson(data),
     }, bundleFilename(name));
-    toastr.success('Folderizer lorebook bundle exported.');
+    toastr.success('Folderizer 로어북 번들을 내보냈습니다.');
 }
 
 async function importLorebookBundle() {
     const bundle = await readJsonFile();
     if (!bundle || !assertBundle(bundle, 'lorebooks')) return;
     if (!bundle.data?.entries) {
-        toastr.error('Folderizer lorebook bundle is missing lorebook data.');
+        toastr.error('Folderizer 로어북 번들에 로어북 데이터가 없습니다.');
         return;
     }
     const name = String(bundle.owner || bundle.data.name || selectedLorebookName() || '').trim();
     if (!name) {
-        toastr.warning('Folderizer lorebook bundle is missing a lorebook name.');
+        toastr.warning('Folderizer 로어북 번들에 로어북 이름이 없습니다.');
         return;
     }
     const exists = world_names.includes(name);
-    const confirmed = await Popup.show.confirm('Import lorebook bundle', exists
-        ? `Replace the existing lorebook "${name}" with this Folderizer bundle?`
-        : `Create a new lorebook "${name}" from this Folderizer bundle?`);
+    const confirmed = await Popup.show.confirm('로어북 번들 불러오기', exists
+        ? `기존 로어북 "${name}"을 이 Folderizer 번들로 덮어쓸까요?`
+        : `이 Folderizer 번들로 새 로어북 "${name}"을 만들까요?`);
     if (!confirmed) return;
 
     const data = cloneJson(bundle.data);
@@ -1247,7 +1469,7 @@ async function importLorebookBundle() {
     if (index >= 0) $('#world_editor_select').val(index).trigger('change');
     await reloadEditor(name, true);
     if (document.getElementById('world_info_sort_order')?.value === LORE_SORT_VALUE) queueLoreRender();
-    toastr.success('Folderizer lorebook bundle imported.');
+    toastr.success('Folderizer 로어북 번들을 불러왔습니다.');
 }
 
 async function createLorebookEntryInFolderOrder() {
@@ -1288,6 +1510,7 @@ function syncLoreOriginalEntry(data, entry) {
     const uid = Number(entry.uid);
     const existing = data.originalData.entries.find(value => value.uid === uid || value.id === uid);
     const original = existing ?? { uid, id: uid };
+    // FRAGILE: mirrors SillyTavern World Info originalData entry shape used by world-info.js.
     original.uid = uid;
     original.id = uid;
     original.keys = Array.isArray(entry.key) ? [...entry.key] : [];
@@ -1384,6 +1607,10 @@ function setupLoreSortables(name, data, layout) {
     let saving = false;
     const saveFromDom = async () => {
         if (saving) return;
+        if (renderingLorebook) {
+            queueLoreRender();
+            return;
+        }
         saving = true;
         try {
             list.querySelectorAll('.folderizer-folder').forEach(updateFolderCount);
@@ -1392,7 +1619,8 @@ function setupLoreSortables(name, data, layout) {
             await persistLoreLayout(name, layout);
         } catch (error) {
             console.error(`[${EXTENSION_NAME}] Failed to save lorebook folder order`, error);
-            toastr.error('Failed to save lorebook folder order.');
+            debugLog('error', '로어북 폴더 순서 저장 실패', error);
+            toastr.error('로어북 폴더 순서를 저장하지 못했습니다.');
             queueLoreRender();
         } finally {
             saving = false;
@@ -1451,7 +1679,8 @@ function setupLoreSortables(name, data, layout) {
         setTimeout(() => {
             task().catch(error => {
                 console.error(`[${EXTENSION_NAME}] Failed to finish lorebook folder sort`, error);
-                toastr.error('Failed to save lorebook folder order.');
+                debugLog('error', '로어북 폴더 정렬 완료 처리 실패', error);
+                toastr.error('로어북 폴더 순서를 저장하지 못했습니다.');
                 queueLoreRender();
             });
         }, 0);
@@ -1580,7 +1809,7 @@ async function renderLorebookFolders() {
         };
         const onDelete = async id => {
             const folder = layout.folders.find(value => value.id === id);
-            if (!folder || !await Popup.show.confirm('Delete folder', `Delete "${folder.name}" and keep its entries at the root?`)) return;
+            if (!folder || !await Popup.show.confirm('폴더 삭제', `"${folder.name}" 폴더를 삭제하고 안의 항목은 최상위로 옮길까요?`)) return;
             removeFolder(layout, id);
             await persistLoreLayout(name, layout);
             rerender();
@@ -1644,7 +1873,8 @@ async function renderLorebookFolders() {
         if (!query) setupLoreSortables(name, data, layout);
     } catch (error) {
         console.error(`[${EXTENSION_NAME}] Failed to render lorebook folders`, error);
-        toastr.error('Failed to render lorebook folders.');
+        debugLog('error', '로어북 폴더 표시 실패', error);
+        toastr.error('로어북 폴더를 표시하지 못했습니다.');
     } finally {
         renderingLorebook = false;
         const list = document.getElementById('world_popup_entries_list');
@@ -1659,10 +1889,10 @@ async function renderLorebookFolders() {
 function queueLoreRender() {
     if (loreRenderQueued) return;
     loreRenderQueued = true;
-    queueMicrotask(async () => {
+    setTimeout(async () => {
         loreRenderQueued = false;
         await renderLorebookFolders();
-    });
+    }, 0);
 }
 
 function installLorebookIntegration() {
@@ -1671,14 +1901,14 @@ function installLorebookIntegration() {
     if (!sort.querySelector(`option[value="${LORE_SORT_VALUE}"]`)) {
         const option = document.createElement('option');
         option.value = LORE_SORT_VALUE;
-        option.textContent = 'Folder order';
+        option.textContent = '폴더 순서';
         option.dataset.rule = 'custom';
         option.dataset.field = 'displayIndex';
         option.dataset.order = 'asc';
         sort.append(option);
     }
     if (!document.getElementById('folderizer_lore_create')) {
-        const create = createIconButton('fa-folder-plus', 'New folder', 'folderizer-lore-create');
+        const create = createIconButton('fa-folder-plus', '새 폴더', 'folderizer-lore-create');
         create.id = 'folderizer_lore_create';
         create.addEventListener('click', createLorebookFolder);
         document.getElementById('world_popup_new')?.after(create);
@@ -1794,22 +2024,22 @@ async function exportRegexBundle(typeKey) {
         layout: cloneJson(layout),
         scripts,
     }, bundleFilename(regexExportName(typeKey)));
-    toastr.success('Folderizer regex bundle exported.');
+    toastr.success('Folderizer 정규식 번들을 내보냈습니다.');
 }
 
 async function importRegexBundle(typeKey) {
     const bundle = await readJsonFile();
     if (!bundle || !assertBundle(bundle, 'regex')) return;
     if (!Array.isArray(bundle.scripts)) {
-        toastr.error('Folderizer regex bundle is missing regex data.');
+        toastr.error('Folderizer 정규식 번들에 정규식 데이터가 없습니다.');
         return;
     }
     if (bundle.typeKey && bundle.typeKey !== typeKey) {
-        toastr.error(`This bundle belongs to the ${REGEX_TYPES[bundle.typeKey]?.label || bundle.typeKey} regex list.`);
+        toastr.error(`이 번들은 ${REGEX_TYPES[bundle.typeKey]?.label || bundle.typeKey} 정규식 목록용입니다.`);
         return;
     }
     const label = REGEX_TYPES[typeKey].label;
-    const confirmed = await Popup.show.confirm('Import regex bundle', `Import this Folderizer bundle into the current ${label} regex list? Regex scripts with the same names will be replaced; others will be added.`);
+    const confirmed = await Popup.show.confirm('정규식 번들 불러오기', `이 Folderizer 번들을 현재 ${label} 정규식 목록으로 불러올까요? 같은 이름의 정규식 스크립트는 대체되고, 나머지는 추가됩니다.`);
     if (!confirmed) return;
 
     const type = REGEX_TYPES[typeKey].scriptType;
@@ -1826,11 +2056,11 @@ async function importRegexBundle(typeKey) {
     bundle.scripts.filter(script => script).forEach(script => {
         const imported = cloneJson(script);
         const existing = scriptsByName.get(nameKey(imported.scriptName));
-        const sourceId = String(imported.id || crypto.randomUUID());
+        const sourceId = String(imported.id || generateUUID());
         if (existing) {
             imported.id = existing.id;
         } else if (!imported.id || usedIds.has(String(imported.id))) {
-            imported.id = crypto.randomUUID();
+            imported.id = generateUUID();
         }
         const targetId = String(imported.id);
         idMap.set(sourceId, targetId);
@@ -1848,7 +2078,7 @@ async function importRegexBundle(typeKey) {
     await saveScriptsByType(orderedScripts, type);
     if (getCurrentChatId()) await reloadCurrentChat();
     enhanceRegexLists();
-    toastr.success('Folderizer regex bundle imported.');
+    toastr.success('Folderizer 정규식 번들을 불러왔습니다.');
 }
 
 function regexLayoutFromDom(list, sourceLayout, typeKey) {
@@ -1917,32 +2147,96 @@ function setupRegexSortable(typeKey, owner, layout) {
             if (getCurrentChatId()) await reloadCurrentChat();
         } catch (error) {
             console.error(`[${EXTENSION_NAME}] Failed to save regex folder order`, error);
-            toastr.error('Failed to save regex folder order.');
+            debugLog('error', '정규식 폴더 순서 저장 실패', error);
+            toastr.error('정규식 폴더 순서를 저장하지 못했습니다.');
         } finally {
             saving = false;
         }
+    };
+
+    let lastPointer = null;
+    let lastFolderElement = null;
+    let draggingRegexIntoFolder = false;
+    let draggingRegexFolderId = null;
+    const clearRegexDropState = () => {
+        lastPointer = null;
+        lastFolderElement = null;
+        draggingRegexIntoFolder = false;
+        draggingRegexFolderId = null;
+        list.classList.remove('folderizer-dropping-into-folder');
+        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+    };
+    const rememberPointer = (event, ui) => {
+        if (!draggingRegexIntoFolder) {
+            list.classList.remove('folderizer-dropping-into-folder');
+            list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+            return;
+        }
+        lastPointer = { x: event.clientX, y: event.clientY };
+        const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
+            .map(element => element.closest?.('.folderizer-regex-folder'))
+            .find(Boolean);
+        if (pointedFolder) lastFolderElement = pointedFolder;
+        list.classList.toggle('folderizer-dropping-into-folder', Boolean(pointedFolder));
+        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+        pointedFolder?.classList.add('folderizer-drop-target');
+        const placeholder = ui?.placeholder?.[0];
+        const items = pointedFolder?.querySelector?.('.folderizer-regex-items');
+        if (placeholder && items && !items.contains(placeholder)) items.append(placeholder);
+    };
+    const moveRegexIntoPointedFolder = item => {
+        if (!item?.classList?.contains('regex-script-label') || !lastPointer) return;
+        const folderElement = lastFolderElement || document.elementsFromPoint(lastPointer.x, lastPointer.y)
+            .map(element => element.closest?.('.folderizer-regex-folder'))
+            .find(Boolean);
+        const items = folderElement?.querySelector?.('.folderizer-regex-items');
+        if (!items || items.contains(item)) return;
+        items.append(item);
+        updateFolderCount(folderElement);
+    };
+    const afterRegexSort = task => {
+        setTimeout(() => {
+            task().catch(error => {
+                console.error(`[${EXTENSION_NAME}] Failed to finish regex folder sort`, error);
+                debugLog('error', '정규식 폴더 정렬 완료 처리 실패', error);
+                toastr.error('정규식 폴더 순서를 저장하지 못했습니다.');
+                enhanceRegexLists();
+            });
+        }, 0);
     };
 
     $list.sortable({
         delay: getSortableDelay(),
         handle: '.drag-handle',
         items: '> .regex-script-label, > .folderizer-folder',
-        connectWith: folderItemsSelector,
         placeholder: 'folderizer-drop-placeholder',
         helper: 'clone',
         appendTo: document.body,
         zIndex: 10000,
         tolerance: 'pointer',
         forcePlaceholderSize: true,
-        start: () => {
+        start: (_, ui) => {
+            const item = ui.item?.[0];
             sortingRegex = true;
+            draggingRegexIntoFolder = item?.classList?.contains('regex-script-label') ?? false;
+            draggingRegexFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
         },
-        stop: async () => {
-            try {
-                await saveFromDom();
-            } finally {
-                sortingRegex = false;
-            }
+        sort: rememberPointer,
+        stop: async (_, ui) => {
+            afterRegexSort(async () => {
+                try {
+                    const item = ui.item?.[0];
+                    if (draggingRegexFolderId && item?.parentElement !== list) {
+                        enhanceRegexLists();
+                        return;
+                    }
+                    moveRegexIntoPointedFolder(item);
+                    await saveFromDom();
+                } finally {
+                    sortingRegex = false;
+                    clearRegexDropState();
+                }
+            });
         },
     });
     list.querySelectorAll('.folderizer-regex-items').forEach(element => {
@@ -1957,18 +2251,31 @@ function setupRegexSortable(typeKey, owner, layout) {
             zIndex: 10000,
             tolerance: 'pointer',
             forcePlaceholderSize: true,
-            start: () => {
+            start: (_, ui) => {
+                const item = ui.item?.[0];
                 sortingRegex = true;
+                draggingRegexIntoFolder = item?.classList?.contains('regex-script-label') ?? false;
+                draggingRegexFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
             },
+            sort: rememberPointer,
             receive: (_, ui) => {
                 if (ui.item.hasClass('folderizer-folder')) $(ui.sender).sortable('cancel');
             },
-            stop: async () => {
-                try {
-                    await saveFromDom();
-                } finally {
-                    sortingRegex = false;
-                }
+            stop: async (_, ui) => {
+                afterRegexSort(async () => {
+                    try {
+                        const item = ui.item?.[0];
+                        if (item?.classList?.contains('folderizer-folder')) {
+                            enhanceRegexLists();
+                            return;
+                        }
+                        moveRegexIntoPointedFolder(item);
+                        await saveFromDom();
+                    } finally {
+                        sortingRegex = false;
+                        clearRegexDropState();
+                    }
+                });
             },
         });
     });
@@ -2007,7 +2314,7 @@ function enhanceRegexList(typeKey) {
     };
     const onDelete = async id => {
         const folder = layout.folders.find(value => value.id === id);
-        if (!folder || !await Popup.show.confirm('Delete folder', `Delete "${folder.name}" and keep its regex scripts at the root?`)) return;
+        if (!folder || !await Popup.show.confirm('폴더 삭제', `"${folder.name}" 폴더를 삭제하고 안의 정규식 스크립트는 최상위로 옮길까요?`)) return;
         removeFolder(layout, id);
         await persistRegexLayout(typeKey, owner, layout);
         rerender();
@@ -2065,11 +2372,16 @@ function enhanceRegexList(typeKey) {
     }
 
     ensureToolbar(list.parentElement, `regex-${typeKey}`, async () => {
-        const name = await requestFolderName(layout);
-        if (!name) return;
-        const folder = { id: crypto.randomUUID(), name, color: '', items: [] };
-        layout.folders.push(folder);
-        layout.root.unshift({ type: 'folder', id: folder.id });
+        const scriptsById = new Map(getScriptsByType(REGEX_TYPES[typeKey].scriptType)
+            .filter(script => script?.id)
+            .map(script => [String(script.id), script]));
+        const candidates = rootItemIds(layout).map(id => ({
+            id,
+            label: scriptsById.get(id)?.scriptName || id,
+        }));
+        const values = await requestNewFolder(layout, candidates);
+        if (!values) return;
+        addFolderWithItems(layout, values.name, values.itemIds);
         await persistRegexLayout(typeKey, owner, layout, false);
         rerender();
     }, createBundleButtons(() => exportRegexBundle(typeKey), () => importRegexBundle(typeKey)));
@@ -2099,11 +2411,11 @@ function installRegexIntegration() {
     regexObserver = new MutationObserver(() => {
         if (enhancingRegex || sortingRegex || regexRenderQueued) return;
         regexRenderQueued = true;
-        queueMicrotask(() => {
+        setTimeout(() => {
             regexRenderQueued = false;
             if (sortingRegex) return;
             enhanceRegexLists();
-        });
+        }, 0);
     });
     regexObserver.observe(root, { childList: true, subtree: true });
     enhanceRegexLists();
@@ -2121,23 +2433,37 @@ function renderSettings() {
                 <div class="inline-drawer-content">
                     <label class="checkbox flex-container">
                         <input id="folderizer_enable_prompts" type="checkbox">
-                        <span>Prompt folders</span>
+                        <span>프롬프트 폴더</span>
                     </label>
                     <label class="checkbox flex-container">
                         <input id="folderizer_enable_lorebooks" type="checkbox">
-                        <span>Lorebook folders</span>
+                        <span>로어북 폴더</span>
                     </label>
                     <label class="checkbox flex-container">
                         <input id="folderizer_enable_regex" type="checkbox">
-                        <span>Regex folders</span>
+                        <span>정규식 폴더</span>
                     </label>
+                    <details class="folderizer-settings-debug">
+                        <summary>진단 도구</summary>
+                        <div class="folderizer-settings-debug-content">
+                            <label class="checkbox flex-container">
+                                <input id="folderizer_debug_mode" type="checkbox">
+                                <span>디버그 모드</span>
+                            </label>
+                            <div class="folderizer-settings-actions">
+                                <button id="folderizer_debug_view" class="menu_button" type="button">로그 보기</button>
+                                <button id="folderizer_debug_copy" class="menu_button" type="button">복사</button>
+                                <button id="folderizer_debug_clear" class="menu_button" type="button">비우기</button>
+                            </div>
+                        </div>
+                    </details>
                     <div class="folderizer-settings-clear">
-                        <div class="folderizer-settings-subtitle">Clear</div>
+                        <div class="folderizer-settings-subtitle">초기화</div>
                         <div class="folderizer-settings-actions">
-                            <button id="folderizer_clear_prompts" class="menu_button" type="button">Prompts</button>
-                            <button id="folderizer_clear_lorebooks" class="menu_button" type="button">Lorebooks</button>
-                            <button id="folderizer_clear_regex" class="menu_button" type="button">Regex</button>
-                            <button id="folderizer_clear_all" class="menu_button caution" type="button">All</button>
+                            <button id="folderizer_clear_prompts" class="menu_button" type="button">프롬프트</button>
+                            <button id="folderizer_clear_lorebooks" class="menu_button" type="button">로어북</button>
+                            <button id="folderizer_clear_regex" class="menu_button" type="button">정규식</button>
+                            <button id="folderizer_clear_all" class="menu_button caution" type="button">전체</button>
                         </div>
                     </div>
                 </div>
@@ -2149,6 +2475,7 @@ function renderSettings() {
         $('#folderizer_enable_prompts').prop('checked', featureEnabled('prompts'));
         $('#folderizer_enable_lorebooks').prop('checked', featureEnabled('lorebooks'));
         $('#folderizer_enable_regex').prop('checked', featureEnabled('regex'));
+        $('#folderizer_debug_mode').prop('checked', debugEnabled());
     };
     const rerender = () => {
         promptManager?.render?.(false);
@@ -2158,11 +2485,13 @@ function renderSettings() {
     $('#folderizer_enable_prompts').on('input', function () {
         settings().features.prompts = !!this.checked;
         saveSettingsDebounced();
+        debugLog('info', `프롬프트 폴더 ${this.checked ? '활성화' : '비활성화'}`);
         rerender();
     });
     $('#folderizer_enable_lorebooks').on('input', function () {
         settings().features.lorebooks = !!this.checked;
         saveSettingsDebounced();
+        debugLog('info', `로어북 폴더 ${this.checked ? '활성화' : '비활성화'}`);
         if (!this.checked && $('#world_info_sort_order').val() === LORE_SORT_VALUE) {
             $('#world_info_sort_order').val('0').trigger('change');
         }
@@ -2171,31 +2500,44 @@ function renderSettings() {
     $('#folderizer_enable_regex').on('input', function () {
         settings().features.regex = !!this.checked;
         saveSettingsDebounced();
+        debugLog('info', `정규식 폴더 ${this.checked ? '활성화' : '비활성화'}`);
         rerender();
     });
+    $('#folderizer_debug_mode').on('input', function () {
+        settings().debug = !!this.checked;
+        saveSettingsDebounced();
+        installDebugListeners();
+        debugLog('info', `디버그 모드 ${this.checked ? '활성화' : '비활성화'}`);
+    });
+    $('#folderizer_debug_view').on('click', showDebugLog);
+    $('#folderizer_debug_copy').on('click', copyDebugLog);
+    $('#folderizer_debug_clear').on('click', () => {
+        debugLogEntries.splice(0, debugLogEntries.length);
+        toastr.success('Folderizer 디버그 로그를 비웠습니다.');
+    });
     $('#folderizer_clear_prompts').on('click', async () => {
-        if (!await Popup.show.confirm('Clear prompt folder data?', 'This keeps prompt order and only removes Folderizer prompt layouts.')) return;
+        if (!await Popup.show.confirm('프롬프트 폴더 데이터 초기화', '프롬프트 순서는 유지하고 Folderizer 프롬프트 배치만 삭제합니다.')) return;
         settings().layouts.prompts = {};
         settings().collapsed.prompt = {};
         saveSettingsDebounced();
         rerender();
     });
     $('#folderizer_clear_lorebooks').on('click', async () => {
-        if (!await Popup.show.confirm('Clear lorebook folder data?', 'This keeps lorebook entries and only removes Folderizer lorebook layouts.')) return;
+        if (!await Popup.show.confirm('로어북 폴더 데이터 초기화', '로어북 항목은 유지하고 Folderizer 로어북 배치만 삭제합니다.')) return;
         settings().layouts.lorebooks = {};
         settings().collapsed.lore = {};
         saveSettingsDebounced();
         rerender();
     });
     $('#folderizer_clear_regex').on('click', async () => {
-        if (!await Popup.show.confirm('Clear regex folder data?', 'This keeps regex scripts and only removes Folderizer regex layouts.')) return;
+        if (!await Popup.show.confirm('정규식 폴더 데이터 초기화', '정규식 스크립트는 유지하고 Folderizer 정규식 배치만 삭제합니다.')) return;
         settings().layouts.regex = { global: {}, scoped: {}, preset: {} };
         settings().collapsed.regex = {};
         saveSettingsDebounced();
         rerender();
     });
     $('#folderizer_clear_all').on('click', async () => {
-        if (!await Popup.show.confirm('Clear all Folderizer data?', 'This keeps original items and only removes Folderizer layouts and collapsed states.')) return;
+        if (!await Popup.show.confirm('모든 Folderizer 데이터 초기화', '원본 항목은 유지하고 Folderizer 배치와 접힘 상태만 삭제합니다.')) return;
         settings().layouts = { prompts: {}, lorebooks: {}, regex: { global: {}, scoped: {}, preset: {} } };
         settings().collapsed = { prompt: {}, lore: {}, regex: {} };
         saveSettingsDebounced();
@@ -2206,6 +2548,8 @@ function renderSettings() {
 
 export async function init() {
     settings();
+    installDebugListeners();
+    debugLog('info', 'Folderizer 초기화 시작');
     renderSettings();
     installLorebookIntegration();
     installRegexIntegration();
@@ -2227,5 +2571,6 @@ export async function init() {
         await installPromptIntegration();
     } catch (error) {
         console.error(`[${EXTENSION_NAME}] Failed to initialize prompt folders`, error);
+        debugLog('error', '프롬프트 폴더 초기화 실패', error);
     }
 }

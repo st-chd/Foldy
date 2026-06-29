@@ -131,6 +131,38 @@
     color: var(--SmartThemeBodyColor);
 }
 
+.folderizer-create-items {
+    display: grid;
+    gap: 0.5em;
+}
+
+.folderizer-create-items-title {
+    font-weight: 600;
+    color: var(--SmartThemeBodyColor);
+}
+
+.folderizer-create-items-list {
+    display: grid;
+    gap: 0.35em;
+    max-height: min(18em, 45vh);
+    overflow: auto;
+    padding: 0.45em;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+}
+
+.folderizer-create-items-list label {
+    min-width: 0;
+    align-items: center;
+}
+
+.folderizer-create-items-list span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .folderizer-edit-form label,
 .folderizer-move-form label {
     display: grid;
@@ -145,8 +177,17 @@
     opacity: 0.9;
 }
 
-.folderizer-edit-form input[type="text"],
-.folderizer-edit-form input[type="color"] {
+.folderizer-edit-form .folderizer-create-items-list label {
+    display: flex;
+    grid-template-columns: none;
+    gap: 0.5em;
+}
+
+.folderizer-edit-form .folderizer-create-items-list label > span:first-child {
+    opacity: 1;
+}
+
+.folderizer-edit-form input[type="text"] {
     border: 1px solid var(--SmartThemeBorderColor);
     border-radius: 6px;
     background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 86%, black);
@@ -160,18 +201,16 @@
     padding: 0.45em 0.65em;
 }
 
-.folderizer-edit-form input[type="color"] {
-    width: 3em;
-    height: 2.15em;
-    padding: 0;
-    cursor: pointer;
-}
-
 .folderizer-color-controls {
     display: grid;
-    grid-template-columns: auto minmax(8em, 1fr);
+    grid-template-columns: auto minmax(10em, 1fr);
     align-items: center;
     gap: 0.5em;
+}
+
+.folderizer-color-controls toolcool-color-picker {
+    width: 2.8em;
+    height: 2.15em;
 }
 
 .folderizer-move-to-folder {
@@ -240,20 +279,6 @@
     min-height: 2.4em;
 }
 
-.folderizer-prompt-root > .completion_prompt_manager_prompt,
-.folderizer-lore-root > .world_entry,
-.folderizer-regex-root > .regex-script-label {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 4rem;
-}
-
-.folderizer-folder-items > .completion_prompt_manager_prompt,
-.folderizer-folder-items > .world_entry,
-.folderizer-folder-items > .regex-script-label {
-    content-visibility: visible;
-    contain-intrinsic-size: none;
-}
-
 #completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(5.5em, auto) auto;
@@ -294,10 +319,24 @@
     gap: 0.35em;
 }
 
+.folderizer-settings-debug,
 .folderizer-settings-clear {
     display: grid;
     gap: 0.35em;
     margin-top: 0.6em;
+}
+
+.folderizer-settings-debug summary {
+    cursor: pointer;
+    font-size: 0.9em;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+.folderizer-settings-debug-content {
+    display: grid;
+    gap: 0.35em;
+    margin-top: 0.35em;
 }
 
 .folderizer-settings-subtitle {
@@ -318,6 +357,37 @@
     white-space: nowrap;
     font-size: 0.9em;
     padding: 0.35em 0.55em;
+}
+
+.folderizer-debug-view {
+    width: min(72em, 88vw);
+    max-width: 100%;
+    box-sizing: border-box;
+    text-align: left;
+}
+
+.folderizer-debug-view pre {
+    max-height: min(32em, 68vh);
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    padding: 0.75em;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 88%, black);
+    color: var(--SmartThemeBodyColor);
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 0.9em;
+    line-height: 1.35;
+    text-align: left;
+    box-sizing: border-box;
+}
+
+.folderizer-debug-copy {
+    width: min(72em, 88vw);
+    height: min(32em, 68vh);
+    box-sizing: border-box;
 }
 
 .folderizer-regex-root .regex-script-label {
