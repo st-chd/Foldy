@@ -1,5 +1,5 @@
 {
-    "display_name": "Folderizer",
+    "display_name": "Foldy",
     "description": "프롬프트, 로어북, 정규식에 폴더를 추가합니다.",
     "loading_order": 20,
     "requires": [],
@@ -8,7 +8,7 @@
     "css": "style.css",
     "author": "CH",
     "version": "1.4.0",
-    "homePage": "https://github.com/st-chd/Folderizer",
+    "homePage": "https://github.com/st-chd/Foldy",
     "hooks": {
         "activate": "init"
     }
