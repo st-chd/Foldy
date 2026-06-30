@@ -27,6 +27,30 @@ export function flattenLayout(layout) {
     });
 }
 
+export function orderItemsByLayout(layout, items, getId = item => item?.id) {
+    const byId = new Map(items
+        .map(item => [String(getId(item) ?? ''), item])
+        .filter(([id]) => id));
+    const used = new Set();
+    const ordered = [];
+
+    for (const id of flattenLayout(layout)) {
+        const item = byId.get(String(id));
+        if (!item || used.has(String(id))) continue;
+        ordered.push(item);
+        used.add(String(id));
+    }
+
+    for (const item of items) {
+        const id = String(getId(item) ?? '');
+        if (!id || used.has(id)) continue;
+        ordered.push(item);
+        used.add(id);
+    }
+
+    return ordered;
+}
+
 function uniqueFolderName(name, usedNames) {
     const base = String(name || 'Folder').trim() || 'Folder';
     let candidate = base;
@@ -96,45 +120,50 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
     }
 
     const ownerIndices = new Map();
-    const rebuildOwnerIndices = (startIndex = 0) => {
-        for (let rootIndex = startIndex; rootIndex < root.length; rootIndex++) {
-            const node = root[rootIndex];
-            if (node.type === 'item') {
-                ownerIndices.set(node.id, rootIndex);
-                continue;
-            }
-            for (const itemId of folderMap.get(node.id)?.items ?? []) {
-                ownerIndices.set(itemId, rootIndex);
-            }
+    root.forEach((node, rootIndex) => {
+        if (node.type === 'item') {
+            ownerIndices.set(node.id, rootIndex);
+            return;
         }
-    };
-    rebuildOwnerIndices();
+        for (const itemId of folderMap.get(node.id)?.items ?? []) {
+            ownerIndices.set(itemId, rootIndex);
+        }
+    });
 
+    const previousOwners = [];
+    let previousOwner = -1;
+    for (let index = 0; index < validIds.length; index++) {
+        previousOwners[index] = previousOwner;
+        const ownerIndex = ownerIndices.get(validIds[index]);
+        if (ownerIndex !== undefined) previousOwner = ownerIndex;
+    }
+
+    const nextOwners = [];
+    let nextOwner = -1;
+    for (let index = validIds.length - 1; index >= 0; index--) {
+        nextOwners[index] = nextOwner;
+        const ownerIndex = ownerIndices.get(validIds[index]);
+        if (ownerIndex !== undefined) nextOwner = ownerIndex;
+    }
+
+    const insertions = new Map();
     for (let index = 0; index < validIds.length; index++) {
         const itemId = validIds[index];
         if (placedItems.has(itemId)) continue;
 
-        let insertionIndex = root.length;
-        for (let previous = index - 1; previous >= 0; previous--) {
-            const previousOwner = ownerIndices.get(validIds[previous]) ?? -1;
-            if (previousOwner !== -1) {
-                insertionIndex = previousOwner + 1;
-                break;
-            }
-        }
-        if (insertionIndex === root.length) {
-            for (let next = index + 1; next < validIds.length; next++) {
-                const nextOwner = ownerIndices.get(validIds[next]) ?? -1;
-                if (nextOwner !== -1) {
-                    insertionIndex = nextOwner;
-                    break;
-                }
-            }
-        }
-        root.splice(insertionIndex, 0, { type: 'item', id: itemId });
+        const insertionIndex = previousOwners[index] !== -1
+            ? previousOwners[index] + 1
+            : nextOwners[index] !== -1
+                ? nextOwners[index]
+                : root.length;
+        if (!insertions.has(insertionIndex)) insertions.set(insertionIndex, []);
+        insertions.get(insertionIndex).push({ type: 'item', id: itemId });
         placedItems.add(itemId);
-        rebuildOwnerIndices(insertionIndex);
     }
+
+    [...insertions.entries()]
+        .sort(([left], [right]) => right - left)
+        .forEach(([index, nodes]) => root.splice(index, 0, ...nodes));
 
     return { version: FOLDERIZER_VERSION, root, folders };
 }

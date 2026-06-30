@@ -1,31 +1,27 @@
 .folderizer-toolbar {
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 0.5em;
     margin: 0.35em 0;
 }
 
 .folderizer-create-folder,
 .folderizer-lore-create,
-.folderizer-bundle-button {
+.folderizer-bundle-button,
+.folderizer-collapse-all,
+.folderizer-expand-all,
+.folderizer-lore-collapse-all,
+.folderizer-lore-expand-all {
+    font-size: inherit;
+    line-height: normal;
     white-space: nowrap;
-    font-size: 0.85em;
-    line-height: 1.1;
-    padding: 0.25em 0.45em;
 }
 
 .folderizer-labeled-button {
     display: inline-flex;
     align-items: center;
     gap: 0.35em;
-}
-
-.folderizer-lore-create,
-.folderizer-bundle-button {
-    width: 2.2em;
-    min-width: 2.2em;
-    justify-content: center;
-    padding: 0.25em;
 }
 
 .folderizer-code-icon {
@@ -115,8 +111,20 @@
 .folderizer-edit-form {
     display: grid;
     gap: 0.85em;
-    min-width: min(34em, 80vw);
+    width: min(28em, 82vw);
+    max-width: 100%;
     text-align: left;
+    align-content: start;
+    overflow: visible;
+}
+
+.folderizer-folder-settings-form {
+    padding-bottom: 0.4em;
+}
+
+.popup:has(.folderizer-folder-settings-form) .popup-body,
+.popup:has(.folderizer-folder-settings-form) .popup-content {
+    overflow: visible;
 }
 
 .folderizer-move-form {
@@ -124,6 +132,19 @@
     gap: 0.85em;
     min-width: min(24em, 80vw);
     text-align: left;
+}
+
+.folderizer-export-form {
+    display: grid;
+    gap: 0.75em;
+    width: min(28em, 82vw);
+    text-align: left;
+}
+
+.folderizer-export-hint {
+    font-size: 0.9em;
+    opacity: 0.8;
+    line-height: 1.35;
 }
 
 .folderizer-edit-title {
@@ -163,10 +184,35 @@
     white-space: nowrap;
 }
 
+.folderizer-target-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em 0.85em;
+    min-width: 0;
+}
+
+.folderizer-edit-form .folderizer-target-option {
+    display: inline-flex;
+    grid-template-columns: none;
+    align-items: center;
+    gap: 0.35em;
+    white-space: nowrap;
+}
+
+.folderizer-edit-form .folderizer-target-option input {
+    margin: 0;
+}
+
+.folderizer-empty-hint {
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.75;
+    padding: 0.1em 0.15em;
+}
+
 .folderizer-edit-form label,
 .folderizer-move-form label {
     display: grid;
-    grid-template-columns: 8.5em minmax(0, 1fr);
+    grid-template-columns: 6.5em minmax(0, 1fr);
     align-items: center;
     gap: 0.75em;
 }
@@ -203,14 +249,37 @@
 
 .folderizer-color-controls {
     display: grid;
-    grid-template-columns: auto minmax(10em, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 0.5em;
+    overflow: visible;
 }
 
 .folderizer-color-controls toolcool-color-picker {
     width: 2.8em;
     height: 2.15em;
+    flex: 0 0 auto;
+}
+
+.folderizer-color-reset {
+    min-width: max-content;
+    white-space: nowrap;
+}
+
+.folderizer-edit-form .folderizer-apply-style-all {
+    display: inline-flex;
+    grid-template-columns: none;
+    justify-self: start;
+    align-items: center;
+    gap: 0.55em;
+    white-space: nowrap;
+    line-height: 1.2;
+    min-height: 1.6em;
+}
+
+.folderizer-edit-form .folderizer-apply-style-all input[type="checkbox"] {
+    flex: 0 0 auto;
+    margin: 0;
 }
 
 .folderizer-move-to-folder {
@@ -225,7 +294,6 @@
     width: 17px;
     margin-left: 0.25em;
     cursor: pointer;
-    filter: drop-shadow(0px 0px 2px black);
     font-size: 0.86em;
     opacity: 0.4;
 }
@@ -279,6 +347,13 @@
     min-height: 2.4em;
 }
 
+button[hidden].folderizer-lore-create,
+button[hidden].folderizer-lore-bundle,
+button[hidden].folderizer-lore-expand-all,
+button[hidden].folderizer-lore-collapse-all {
+    display: none !important;
+}
+
 #completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(5.5em, auto) auto;
@@ -319,24 +394,10 @@
     gap: 0.35em;
 }
 
-.folderizer-settings-debug,
 .folderizer-settings-clear {
     display: grid;
     gap: 0.35em;
     margin-top: 0.6em;
-}
-
-.folderizer-settings-debug summary {
-    cursor: pointer;
-    font-size: 0.9em;
-    font-weight: 600;
-    opacity: 0.85;
-}
-
-.folderizer-settings-debug-content {
-    display: grid;
-    gap: 0.35em;
-    margin-top: 0.35em;
 }
 
 .folderizer-settings-subtitle {
@@ -345,14 +406,23 @@
     opacity: 0.85;
 }
 
+.folderizer-settings-hint {
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.85em;
+    line-height: 1.35;
+    opacity: 0.72;
+}
+
 .folderizer-settings-actions {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, max-content));
+    grid-template-columns: repeat(auto-fit, minmax(4.8em, 1fr));
     align-items: center;
     gap: 0.4em;
+    width: 100%;
 }
 
 .folderizer-settings-actions .menu_button {
+    width: 100%;
     min-width: 0;
     white-space: nowrap;
     font-size: 0.9em;
@@ -384,6 +454,24 @@
     box-sizing: border-box;
 }
 
+.folderizer-diagnostics-view {
+    display: grid;
+    gap: 0.5em;
+}
+
+.folderizer-diagnostics-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.folderizer-diagnostics-actions .menu_button {
+    width: auto;
+    min-width: max-content;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+}
+
 .folderizer-debug-copy {
     width: min(72em, 88vw);
     height: min(32em, 68vh);
@@ -401,6 +489,11 @@
 }
 
 @media (max-width: 700px) {
+    .folderizer-toolbar {
+        justify-content: flex-end;
+        gap: 0.35em;
+    }
+
     .folderizer-folder-header {
         grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
     }
@@ -419,7 +512,12 @@
         grid-template-columns: auto minmax(0, 1fr);
     }
 
+    .folderizer-color-reset {
+        grid-column: 2;
+        justify-self: start;
+    }
+
     .folderizer-settings-actions {
-        grid-template-columns: repeat(2, max-content);
+        grid-template-columns: repeat(auto-fit, minmax(4.8em, 1fr));
     }
 }
