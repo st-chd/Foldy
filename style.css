@@ -12,7 +12,9 @@
 .foldy-collapse-all,
 .foldy-expand-all,
 .foldy-lore-collapse-all,
-.foldy-lore-expand-all {
+.foldy-lore-expand-all,
+.foldy-root-bulk-move,
+.foldy-lore-bulk-setting {
     font-size: inherit;
     line-height: normal;
     white-space: nowrap;
@@ -22,6 +24,35 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35em;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: max-content;
+    max-width: none;
+    height: auto;
+    writing-mode: horizontal-tb;
+    white-space: nowrap;
+    line-height: normal;
+    text-align: center;
+}
+
+.foldy-labeled-button > span {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.foldy-root-bulk-move {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 2.2em;
+}
+
+.foldy-lore-bulk-setting.foldy-labeled-button {
+    min-width: 2.2em;
+    justify-content: center;
+}
+
+.foldy-lore-bulk-setting.foldy-labeled-button > span:not(.fa-solid) {
+    display: none;
 }
 
 .foldy-code-icon {
@@ -50,20 +81,25 @@
 }
 
 .foldy-folder-header {
-    display: grid;
-    grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+    display: flex;
     align-items: center;
     gap: 0.45em;
     min-height: 2.4em;
     padding: 0.35em 0.55em;
+    cursor: pointer;
+    flex-wrap: nowrap;
+    min-width: 0;
 }
 
-.foldy-folder-header.has-state-toggle {
-    grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto;
+.foldy-folder-header button,
+.foldy-folder-header .foldy-drag {
+    cursor: revert;
 }
 
 .foldy-folder-name {
     color: var(--foldy-name-color);
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -80,10 +116,33 @@
     border: 1px solid color-mix(in srgb, var(--foldy-border-color) 70%, transparent);
     border-radius: 999px;
     background: color-mix(in srgb, var(--foldy-border-color) 18%, transparent);
+    color: var(--foldy-name-color);
     font-size: 0.78em;
     font-weight: 600;
     line-height: 1;
     opacity: 0.9;
+    flex: 0 0 auto;
+}
+
+.foldy-folder-header > button,
+.foldy-folder-header > .foldy-drag,
+.foldy-folder-header > .foldy-state-badge {
+    flex: 0 0 auto;
+}
+
+.foldy-state-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35em;
+    height: 1.35em;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 22%, transparent);
+    border-radius: 999px;
+    background: #f97316;
+    color: white;
+    font-size: 0.78em;
+    font-weight: 800;
+    line-height: 1;
 }
 
 .foldy-folder-items {
@@ -154,7 +213,7 @@
 
 .foldy-create-items {
     display: grid;
-    gap: 0.5em;
+    gap: 0;
 }
 
 .foldy-create-items-title {
@@ -162,14 +221,34 @@
     color: var(--SmartThemeBodyColor);
 }
 
+.foldy-selection-toolbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.45em;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-bottom: 0;
+    border-radius: 6px 6px 0 0;
+    font-weight: 700;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 72%, transparent);
+}
+
+.foldy-selection-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .foldy-create-items-list {
     display: grid;
-    gap: 0.35em;
+    gap: 0;
     max-height: min(18em, 45vh);
     overflow: auto;
     padding: 0.45em;
     border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 6px;
+    border-radius: 0 0 6px 6px;
 }
 
 .foldy-create-items-list label {
@@ -223,13 +302,16 @@
     opacity: 0.9;
 }
 
-.foldy-edit-form .foldy-create-items-list label {
-    display: flex;
-    grid-template-columns: none;
+.foldy-edit-form .foldy-create-items-list label,
+.foldy-move-form .foldy-create-items-list label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 0.5em;
+    padding: 0.2em 0;
 }
 
-.foldy-edit-form .foldy-create-items-list label > span:first-child {
+.foldy-edit-form .foldy-create-items-list label > span:last-child,
+.foldy-move-form .foldy-create-items-list label > span:last-child {
     opacity: 1;
 }
 
@@ -488,18 +570,14 @@ button[hidden].foldy-lore-collapse-all {
     opacity: 0.35;
 }
 
+#world_popup_entries_list.foldy-lore-pending > .world_entry {
+    visibility: hidden;
+}
+
 @media (max-width: 700px) {
     .foldy-toolbar {
         justify-content: flex-end;
         gap: 0.35em;
-    }
-
-    .foldy-folder-header {
-        grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
-    }
-
-    .foldy-folder-header.has-state-toggle {
-        grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto;
     }
 
     .foldy-edit-form label,
