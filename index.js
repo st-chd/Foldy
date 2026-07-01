@@ -1,6 +1,6 @@
 import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
 import { extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
-import { promptManager } from '../../../openai.js';
+import { getChatCompletionPreset, oai_settings, promptManager } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
 import { getPresetManager } from '../../../preset-manager.js';
 import { renderTemplateAsync } from '../../../templates.js';
@@ -89,29 +89,73 @@ let slashCommandsRegistered = false;
 let lorebookNamesSnapshot = null;
 const debugLogEntries = [];
 
+function recordDebugLog(level, message, detail = null) {
+    debugLogEntries.push({
+        time: new Date().toLocaleString(),
+        level,
+        message,
+        detail: detail == null ? '' : formatDebugDetail(detail),
+    });
+    if (debugLogEntries.length > DEBUG_LOG_LIMIT) debugLogEntries.splice(0, debugLogEntries.length - DEBUG_LOG_LIMIT);
+}
+
 function settings() {
     if (!extension_settings[SETTINGS_KEY] && extension_settings[LEGACY_KEY]) {
         extension_settings[SETTINGS_KEY] = extension_settings[LEGACY_KEY];
     }
-    extension_settings[SETTINGS_KEY] ??= {};
+    if (!extension_settings[SETTINGS_KEY] || typeof extension_settings[SETTINGS_KEY] !== 'object' || Array.isArray(extension_settings[SETTINGS_KEY])) {
+        extension_settings[SETTINGS_KEY] = {};
+    }
     const value = extension_settings[SETTINGS_KEY];
-    value.features ??= { prompts: true, lorebooks: true, regex: true };
-    value.features.prompts ??= true;
-    value.features.lorebooks ??= true;
-    value.features.regex ??= true;
-    value.layouts ??= {};
-    value.layouts.prompts ??= {};
-    value.layouts.lorebooks ??= {};
-    value.layouts.regex ??= {};
-    value.layouts.regex.global ??= {};
-    value.layouts.regex.scoped ??= {};
-    value.layouts.regex.preset ??= {};
-    value.collapsed ??= {};
-    value.collapsed.prompt ??= {};
-    value.collapsed.lore ??= {};
-    value.collapsed.regex ??= {};
+    const preserveCorrupted = (key, corruptedValue) => {
+        if (!value._corrupted || typeof value._corrupted !== 'object' || Array.isArray(value._corrupted)) {
+            value._corrupted = {};
+        }
+        value._corrupted[key] = cloneJsonSafe(corruptedValue);
+        recordDebugLog('error', `설정 구조 복구: ${key}`, {
+            preservedAs: `_corrupted.${key}`,
+            valueType: Array.isArray(corruptedValue) ? 'array' : typeof corruptedValue,
+        });
+    };
+    const ensureObject = key => {
+        if (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key])) {
+            preserveCorrupted(key, value[key]);
+            value[key] = {};
+        }
+        return value[key];
+    };
+    const features = ensureObject('features');
+    const layouts = ensureObject('layouts');
+    const collapsed = ensureObject('collapsed');
+    const ensureChildObject = (parent, key, label) => {
+        if (!parent[key] || typeof parent[key] !== 'object' || Array.isArray(parent[key])) {
+            preserveCorrupted(label, parent[key]);
+            parent[key] = {};
+        }
+        return parent[key];
+    };
+    features.prompts ??= true;
+    features.lorebooks ??= true;
+    features.regex ??= true;
+    ensureChildObject(layouts, 'prompts', 'layouts.prompts');
+    ensureChildObject(layouts, 'lorebooks', 'layouts.lorebooks');
+    const regexLayouts = ensureChildObject(layouts, 'regex', 'layouts.regex');
+    ensureChildObject(regexLayouts, 'global', 'layouts.regex.global');
+    ensureChildObject(regexLayouts, 'scoped', 'layouts.regex.scoped');
+    ensureChildObject(regexLayouts, 'preset', 'layouts.regex.preset');
+    ensureChildObject(collapsed, 'prompt', 'collapsed.prompt');
+    ensureChildObject(collapsed, 'lore', 'collapsed.lore');
+    ensureChildObject(collapsed, 'regex', 'collapsed.regex');
     value.debug ??= false;
     return value;
+}
+
+function cloneJsonSafe(value) {
+    try {
+        return cloneJson(value);
+    } catch {
+        return String(value);
+    }
 }
 
 function debugEnabled() {
@@ -130,13 +174,7 @@ function formatDebugDetail(detail) {
 
 function debugLog(level, message, detail = null) {
     if (!debugEnabled() && level !== 'error') return;
-    debugLogEntries.push({
-        time: new Date().toLocaleString(),
-        level,
-        message,
-        detail: detail == null ? '' : formatDebugDetail(detail),
-    });
-    if (debugLogEntries.length > DEBUG_LOG_LIMIT) debugLogEntries.splice(0, debugLogEntries.length - DEBUG_LOG_LIMIT);
+    recordDebugLog(level, message, detail);
     const method = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'debug';
     console[method]?.(`[${EXTENSION_NAME}] ${message}`, detail ?? '');
 }
@@ -447,6 +485,23 @@ function promptBundlePresetName(bundle) {
     const owner = String(bundle?.owner || '');
     const index = owner.indexOf(':');
     return index >= 0 ? owner.slice(index + 1) : owner;
+}
+
+function currentPromptPresetSettings(presetName = promptExportName()) {
+    const presetManager = promptPresetManager();
+    const selectedName = presetManager?.getSelectedPresetName?.();
+    if (!presetName || selectedName === presetName) {
+        return getChatCompletionPreset(oai_settings);
+    }
+    return cloneJson(presetManager?.getCompletionPresetByName?.(presetName) || presetManager?.getPresetSettings?.(presetName) || {});
+}
+
+function promptPresetSettingsWithManagerState(baseSettings, manager = promptManager) {
+    return {
+        ...cloneJson(baseSettings || {}),
+        prompts: cloneJson(manager.serviceSettings.prompts || []),
+        prompt_order: cloneJson(manager.serviceSettings.prompt_order || []),
+    };
 }
 
 function selectedLorebookName() {
@@ -907,6 +962,16 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
 
     const collapse = createIconButton('fa-chevron-down', '폴더 접기');
     collapse.classList.add('foldy-collapse-toggle');
+    const more = createIconButton('fa-ellipsis-vertical', '폴더 메뉴', 'foldy-folder-more');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-expanded', 'false');
+    const actions = document.createElement('div');
+    actions.className = 'foldy-folder-actions';
+    actions.setAttribute('role', 'menu');
+    const closeActions = () => {
+        element.classList.remove('is-actions-open');
+        more.setAttribute('aria-expanded', 'false');
+    };
     const items = document.createElement(kind === 'regex' ? 'div' : 'ul');
     items.className = `foldy-folder-items foldy-${kind}-items`;
 
@@ -929,11 +994,30 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
         event.stopPropagation();
         toggleCollapsed();
     });
+    more.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const shouldOpen = !element.classList.contains('is-actions-open');
+        element.closest('.foldy-folder-items, #completion_prompt_manager_list, #world_popup_entries_list, #regex_container')
+            ?.querySelectorAll('.foldy-folder.is-actions-open')
+            .forEach(folderElement => {
+                if (folderElement !== element) {
+                    folderElement.classList.remove('is-actions-open');
+                    folderElement.querySelector('.foldy-folder-more')?.setAttribute('aria-expanded', 'false');
+                }
+            });
+        element.classList.toggle('is-actions-open', shouldOpen);
+        more.setAttribute('aria-expanded', String(shouldOpen));
+    });
+    actions.addEventListener('click', event => {
+        if (event.target.closest?.('button')) closeActions();
+    });
 
     header.addEventListener('click', event => {
-        const interactive = event.target.closest?.('button, input, select, textarea, a, .foldy-drag, .drag-handle');
+        const interactive = event.target.closest?.('button, input, select, textarea, a, .foldy-drag, .drag-handle, .foldy-folder-actions');
         if (interactive) return;
         event.preventDefault();
+        closeActions();
         toggleCollapsed();
     });
 
@@ -953,16 +1037,17 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
                 stateButton.disabled = false;
             }
         });
-        header.append(stateButton);
+        actions.append(stateButton);
     }
     header.append(name, count);
     if (state === 'mixed') header.append(mixedBadge);
-    if (extraButtons.length) header.append(...extraButtons);
+    if (extraButtons.length) actions.append(...extraButtons);
     if (onBulkMove) {
         header.classList.add('has-bulk-move');
-        header.append(bulkMove);
+        actions.append(bulkMove);
     }
-    header.append(edit, remove);
+    actions.append(edit, remove);
+    header.append(more, actions);
     element.append(header, items);
     return element;
 }
@@ -1584,10 +1669,17 @@ function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
     }
 
     if (kind === 'lore') {
-        const host = element.querySelector('.world_entry_thin_controls');
-        const before = host?.querySelector('.flex-container.alignitemscenter.wide100p');
+        const host = element.querySelector('.inline-drawer-header');
         if (host) {
-            before ? host.insertBefore(button, before) : host.append(button);
+            let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
+            if (!actions) {
+                actions = document.createElement('div');
+                actions.className = 'foldy-lore-entry-actions';
+                const nativeButtons = [...host.querySelectorAll(':scope > .move_entry_button, :scope > .duplicate_entry_button, :scope > .delete_entry_button')];
+                host.append(actions);
+                nativeButtons.forEach(value => actions.append(value));
+            }
+            actions.prepend(button);
         }
         return;
     }
@@ -1598,7 +1690,7 @@ function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
 }
 
 function ensureToolbar(parent, key, onCreate, extra = []) {
-    if (!parent) return;
+    if (!parent) return null;
     parent.querySelector(`.foldy-toolbar[data-foldy-toolbar="${key}"]`)?.remove();
     const toolbar = document.createElement('div');
     toolbar.className = 'foldy-toolbar';
@@ -1614,6 +1706,24 @@ function ensureToolbar(parent, key, onCreate, extra = []) {
     }
     toolbar.append(...extra);
     parent.prepend(toolbar);
+    return toolbar;
+}
+
+function setPromptToolbarSummary(toolbar, layout) {
+    if (!toolbar || !layout) return;
+    const summary = document.createElement('span');
+    summary.className = 'foldy-toolbar-summary';
+    const folderCount = layout.folders?.length || 0;
+    const unfiledCount = rootItemIds(layout).length;
+    summary.textContent = `폴더 ${folderCount} · 미분류 ${unfiledCount}`;
+    summary.title = `Foldy: 폴더 ${folderCount}개, 미분류 항목 ${unfiledCount}개`;
+    toolbar.prepend(summary);
+}
+
+function placePromptToolbar(toolbar, rangeBlock) {
+    if (!toolbar || !rangeBlock) return;
+    const list = rangeBlock.querySelector('#completion_prompt_manager_list');
+    if (list) rangeBlock.insertBefore(toolbar, list);
 }
 
 function cloneJson(value) {
@@ -1644,6 +1754,67 @@ function downloadJson(value, filename) {
 
 function bundleFilename(name) {
     return `${safeFilePart(name)}.json`;
+}
+
+function backupFilename(name) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return bundleFilename(`${name}-backup-${stamp}`);
+}
+
+function backupExistingPromptPreset(presetName, manager = promptManager) {
+    const owner = promptOwnerKeyForName(presetName);
+    const presetSettings = currentPromptPresetSettings(presetName);
+    const prompts = Array.isArray(presetSettings?.prompts) ? presetSettings.prompts : [];
+    const ids = prompts.map(prompt => String(prompt?.identifier || '')).filter(Boolean);
+    const layout = normalizeLayout(settings().layouts.prompts[owner], ids, { preserveUnrootedFolders: false });
+    downloadJson({
+        kind: BUNDLE_KIND,
+        version: BUNDLE_VERSION,
+        scope: 'prompts',
+        owner: presetName,
+        presetName,
+        backup: true,
+        createdAt: new Date().toISOString(),
+        layout: cloneJson(layout),
+        presetSettings: cloneJson(presetSettings),
+        prompts: cloneJson(prompts),
+        promptOrder: cloneJson(presetSettings?.prompt_order || []),
+    }, backupFilename(`${presetName}-prompts`));
+}
+
+async function backupExistingLorebook(name) {
+    const data = await loadWorldInfo(name);
+    if (!data?.entries) return;
+    const owner = lorebookOwnerForName(name);
+    const layout = normalizeLayout(settings().layouts.lorebooks[owner], loreEntryIds(data), { preserveUnrootedFolders: false });
+    downloadJson({
+        kind: BUNDLE_KIND,
+        version: BUNDLE_VERSION,
+        scope: 'lorebooks',
+        owner: name,
+        backup: true,
+        createdAt: new Date().toISOString(),
+        layout: cloneJson(layout),
+        data: cloneJson(data),
+    }, backupFilename(`${name}-lorebook`));
+}
+
+function backupExistingRegex(typeKey) {
+    const type = REGEX_TYPES[typeKey].scriptType;
+    const owner = regexOwnerKey(typeKey);
+    const scripts = getScriptsByType(type);
+    const layout = normalizeLayout(settings().layouts.regex[typeKey][owner], regexItemIds(typeKey), { preserveUnrootedFolders: false });
+    downloadJson({
+        kind: BUNDLE_KIND,
+        version: BUNDLE_VERSION,
+        scope: 'regex',
+        owner,
+        typeKey,
+        backup: true,
+        createdAt: new Date().toISOString(),
+        layout: cloneJson(layout),
+        scripts: cloneJson(scripts),
+    }, backupFilename(`${regexExportName(typeKey)}-regex`));
 }
 
 async function readJsonFile() {
@@ -1737,6 +1908,27 @@ function mergeImportedLayout(currentLayout, importedLayout, allIds) {
         root: [...importedLayout.root, ...baseLayout.root],
         folders: [...importedLayout.folders, ...baseLayout.folders],
     }, allIds);
+}
+
+function shouldRejectDomLayout(previousLayout, nextLayout, label) {
+    const previousFolderCount = previousLayout?.folders?.length || 0;
+    const nextFolderCount = nextLayout?.folders?.length || 0;
+    const nextFolderIds = new Set((nextLayout?.folders || []).map(folder => String(folder.id)));
+    const missingFolderIds = (previousLayout?.folders || [])
+        .map(folder => String(folder.id))
+        .filter(id => !nextFolderIds.has(id));
+    if (missingFolderIds.length) {
+        debugLog('error', `${label} DOM 기반 레이아웃 저장 중단`, {
+            reason: 'DOM 재구성 결과 기존 폴더 일부가 사라졌습니다.',
+            previousFolderCount,
+            nextFolderCount,
+            missingFolderCount: missingFolderIds.length,
+            missingFolderIds,
+        });
+        toastr.warning('Foldy 폴더 구조가 일시적으로 불완전해 보여 저장을 중단하고 다시 그립니다.');
+        return true;
+    }
+    return false;
 }
 
 function createBundleButtons(onExport, onImport) {
@@ -1942,12 +2134,6 @@ async function importPromptLayoutBundle(bundle, manager = promptManager) {
     }
     const currentPreset = promptExportName();
     const sourcePreset = promptBundlePresetName(bundle) || '알 수 없는 프리셋';
-    const confirmed = await Popup.show.confirm(
-        '프롬프트 폴더 구조 불러오기',
-        `"${sourcePreset}"의 폴더 구조를 현재 프리셋 "${currentPreset}"에 적용할까요? 프롬프트 내용은 바뀌지 않습니다.`,
-    );
-    if (!confirmed) return;
-
     const currentPrompts = manager.serviceSettings.prompts || [];
     const currentIds = promptOrderIds(manager);
     const currentById = new Map(currentPrompts
@@ -1967,6 +2153,12 @@ async function importPromptLayoutBundle(bundle, manager = promptManager) {
         const target = direct || byName;
         if (target?.identifier) idMap.set(String(sourceId), String(target.identifier));
     }
+    const sourceItemCount = new Set(flattenLayout(bundle.layout)).size;
+    const confirmed = await Popup.show.confirm(
+        '프롬프트 폴더 구조 불러오기',
+        `"${sourcePreset}"의 폴더 구조를 현재 프리셋 "${currentPreset}"에 적용할까요? 프롬프트 내용은 바뀌지 않습니다.\n\n현재 프롬프트: ${currentIds.length}개\n구조 번들 항목: ${sourceItemCount}개\n매칭된 항목: ${idMap.size}개\n매칭 실패: ${Math.max(0, sourceItemCount - idMap.size)}개`,
+    );
+    if (!confirmed) return;
 
     const currentLayout = normalizeLayout(null, currentIds);
     const importedLayout = remapImportedLayout(bundle.layout, idMap);
@@ -2010,7 +2202,7 @@ async function exportPromptBundle(manager = promptManager) {
     }
 
     const prompts = (manager.serviceSettings.prompts || [])
-        .filter(prompt => prompt?.identifier && ids.has(String(prompt.identifier)))
+        .filter(prompt => prompt?.identifier)
         .map(cloneJson);
     const promptOrder = manager.getPromptOrderForCharacter(manager.activeCharacter)
         .filter(entry => ids.has(String(entry.identifier)))
@@ -2022,7 +2214,7 @@ async function exportPromptBundle(manager = promptManager) {
         scope: 'prompts',
         owner,
         presetName,
-        presetSettings: cloneJson(presetManager?.getPresetSettings?.(presetName) || {}),
+        presetSettings: promptPresetSettingsWithManagerState(currentPromptPresetSettings(presetName), manager),
         layout: cloneJson(layout),
         prompts,
         promptOrder,
@@ -2048,12 +2240,15 @@ async function importPromptBundle(manager = promptManager) {
         return;
     }
     const exists = presetManager?.getAllPresets?.().includes(presetName);
+    const existingPromptCount = exists ? (currentPromptPresetSettings(presetName)?.prompts || []).length : 0;
+    const importedPromptCount = bundle.prompts.filter(prompt => prompt?.identifier).length;
     const confirmed = await Popup.show.confirm('프롬프트 번들 불러오기', exists
-        ? `기존 프롬프트 프리셋 "${presetName}"을 이 Foldy 번들로 덮어쓸까요?`
-        : `이 Foldy 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?`);
+        ? `기존 프롬프트 프리셋 "${presetName}"의 프롬프트, 순서, 파라미터 설정을 이 Foldy 번들 내용으로 덮어씁니다.\n\n기존 프롬프트: ${existingPromptCount}개\n가져올 프롬프트: ${importedPromptCount}개\n\n계속하면 덮어쓰기 전 백업 파일을 자동으로 내려받습니다. 계속할까요?`
+        : `이 Foldy 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?\n\n가져올 프롬프트: ${importedPromptCount}개`);
     if (!confirmed) return;
+    if (exists) backupExistingPromptPreset(presetName, manager);
 
-    const presetSettings = cloneJson(bundle.presetSettings || presetManager?.getPresetSettings?.(presetName) || {});
+    const presetSettings = cloneJson(bundle.presetSettings || currentPromptPresetSettings(presetName));
     await presetManager.savePreset(presetName, presetSettings);
     const presetValue = presetManager.findPreset(presetName);
     if (presetValue !== undefined) presetManager.selectPreset(presetValue);
@@ -2103,7 +2298,7 @@ async function importPromptBundle(manager = promptManager) {
     settings().layouts.prompts[owner] = layout;
     currentPromptLayout = layout;
     saveSettingsDebounced();
-    await manager.saveServiceSettings();
+    await presetManager.savePreset(presetName, promptPresetSettingsWithManagerState(presetSettings, manager));
     manager.render(false);
     toastr.success('Foldy 프롬프트 번들을 불러왔습니다.');
 }
@@ -2167,6 +2362,10 @@ function setupPromptSortables(manager) {
                 if (countElement) countElement.textContent = String(preserved.items.length);
             });
             const next = promptLayoutFromDom(list, currentPromptLayout, { preserveFolderIds });
+            if (shouldRejectDomLayout(currentPromptLayout, next, '프롬프트')) {
+                manager.render(false);
+                return;
+            }
             await persistPromptLayout(promptOwnerKey(), next, manager);
         } catch (error) {
             console.error(`[${EXTENSION_NAME}] Failed to save prompt folder order`, error);
@@ -2402,7 +2601,8 @@ async function enhancePromptList(manager) {
         list.append(folderElement);
     }
 
-    ensureToolbar(list.closest('.range-block'), 'prompt', async () => {
+    const rangeBlock = list.closest('.range-block');
+    const toolbar = ensureToolbar(rangeBlock, 'prompt', async () => {
         const promptsById = new Map((manager.serviceSettings.prompts || [])
             .filter(prompt => prompt?.identifier)
             .map(prompt => [String(prompt.identifier), prompt]));
@@ -2431,6 +2631,8 @@ async function enhancePromptList(manager) {
         ...createCollapseButtons('prompt', owner, () => currentPromptLayout, async () => rerender()),
         ...createBundleButtons(() => exportPromptBundle(manager), () => importPromptBundle(manager)),
     ]);
+    setPromptToolbarSummary(toolbar, currentPromptLayout);
+    placePromptToolbar(toolbar, rangeBlock);
 }
 
 async function installPromptIntegration() {
@@ -2593,12 +2795,6 @@ async function importLorebookLayoutBundle(bundle) {
         return;
     }
     const sourceName = String(bundle.owner || '알 수 없는 로어북');
-    const confirmed = await Popup.show.confirm(
-        '로어북 폴더 구조 불러오기',
-        `"${sourceName}"의 폴더 구조를 현재 로어북 "${name}"에 적용할까요? 로어북 내용은 바뀌지 않습니다.`,
-    );
-    if (!confirmed) return;
-
     const data = await loadWorldInfo(name);
     if (!data?.entries) return;
     const currentIds = loreEntryIds(data);
@@ -2623,6 +2819,12 @@ async function importLorebookLayoutBundle(bundle) {
         const target = direct || byComment;
         if (target?.uid != null) idMap.set(String(sourceId), String(target.uid));
     }
+    const sourceItemCount = new Set(flattenLayout(bundle.layout)).size;
+    const confirmed = await Popup.show.confirm(
+        '로어북 폴더 구조 불러오기',
+        `"${sourceName}"의 폴더 구조를 현재 로어북 "${name}"에 적용할까요? 로어북 내용은 바뀌지 않습니다.\n\n현재 항목: ${currentIds.length}개\n구조 번들 항목: ${sourceItemCount}개\n매칭된 항목: ${idMap.size}개\n매칭 실패: ${Math.max(0, sourceItemCount - idMap.size)}개`,
+    );
+    if (!confirmed) return;
 
     const currentLayout = normalizeLayout(null, currentIds);
     const importedLayout = remapImportedLayout(bundle.layout, idMap);
@@ -2689,10 +2891,14 @@ async function importLorebookBundle() {
         return;
     }
     const exists = world_names.includes(name);
+    const currentData = exists ? await loadWorldInfo(name) : null;
+    const existingEntryCount = currentData?.entries ? loreEntryIds(currentData).length : 0;
+    const importedEntryCount = loreEntryIds(bundle.data).length;
     const confirmed = await Popup.show.confirm('로어북 번들 불러오기', exists
-        ? `기존 로어북 "${name}"을 이 Foldy 번들로 덮어쓸까요?`
-        : `이 Foldy 번들로 새 로어북 "${name}"을 만들까요?`);
+        ? `기존 로어북 "${name}"의 항목 전체와 Foldy 폴더 구조를 이 번들 내용으로 덮어씁니다.\n\n기존 항목: ${existingEntryCount}개\n가져올 항목: ${importedEntryCount}개\n\n계속하면 덮어쓰기 전 백업 파일을 자동으로 내려받습니다. 계속할까요?`
+        : `이 Foldy 번들로 새 로어북 "${name}"을 만들까요?\n\n가져올 항목: ${importedEntryCount}개`);
     if (!confirmed) return;
+    if (exists) await backupExistingLorebook(name);
 
     const data = cloneJson(bundle.data);
     const layout = normalizeLayout(bundle.layout, loreEntryIds(data));
@@ -2956,8 +3162,7 @@ function createLoreBulkSettingButtons(name, data, layout, folder) {
     return [strategy, position];
 }
 
-function setupLoreSortables(owner, data, layout) {
-    const list = document.getElementById('world_popup_entries_list');
+function destroyLoreSortables(list = document.getElementById('world_popup_entries_list')) {
     if (!list) return;
     const $list = $(list);
     if ($list.sortable('instance')) $list.sortable('destroy');
@@ -2965,8 +3170,15 @@ function setupLoreSortables(owner, data, layout) {
         const $element = $(element);
         if ($element.sortable('instance')) $element.sortable('destroy');
     });
+}
 
-    const allIds = Object.keys(data.entries);
+function setupLoreSortables(owner, data, layout) {
+    const list = document.getElementById('world_popup_entries_list');
+    if (!list) return;
+    destroyLoreSortables(list);
+    const $list = $(list);
+
+    const allIds = loreEntryIds(data);
     let saving = false;
     const saveFromDom = async () => {
         if (saving) return;
@@ -2978,6 +3190,10 @@ function setupLoreSortables(owner, data, layout) {
         try {
             list.querySelectorAll('.foldy-folder').forEach(updateFolderCount);
             const next = loreLayoutFromDom(list, layout, allIds);
+            if (shouldRejectDomLayout(layout, next, '로어북')) {
+                queueLoreRender();
+                return;
+            }
             Object.assign(layout, next);
             await persistLoreLayout(owner, layout);
         } catch (error) {
@@ -3133,7 +3349,10 @@ async function renderLorebookFolders() {
         loreRenderRequestedAfterRender = true;
         return;
     }
-    if (!featureEnabled('lorebooks') || $('#world_info_sort_order').val() !== LORE_SORT_VALUE) return;
+    if (!featureEnabled('lorebooks') || $('#world_info_sort_order').val() !== LORE_SORT_VALUE) {
+        document.getElementById('world_popup_entries_list')?.classList.remove('foldy-lore-pending');
+        return;
+    }
     const { name, owner } = currentLorebookOwner();
     if (!name) return;
     renderingLorebook = true;
@@ -3154,6 +3373,7 @@ async function renderLorebookFolders() {
         const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
 
         loreObserver?.disconnect();
+        if (query) destroyLoreSortables(list);
         list.innerHTML = '';
         list.classList.add('foldy-lore-root');
         list.classList.toggle('foldy-searching', Boolean(query));
@@ -3246,6 +3466,7 @@ async function renderLorebookFolders() {
         document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
         list.querySelectorAll('textarea[name="comment"]').forEach(element => initScrollHeight($(element)));
         if (!query) setupLoreSortables(owner, data, layout);
+        else destroyLoreSortables(list);
     } catch (error) {
         console.error(`[${EXTENSION_NAME}] Failed to render lorebook folders`, error);
         debugLog('error', '로어북 폴더 표시 실패', error);
@@ -3263,6 +3484,7 @@ async function renderLorebookFolders() {
 }
 
 function queueLoreRender() {
+    if (!featureEnabled('lorebooks') || $('#world_info_sort_order').val() !== LORE_SORT_VALUE) return;
     if (loreRenderQueued) return;
     syncLorebookRenameMigration({ rerender: false });
     loreRenderQueued = true;
@@ -3298,12 +3520,18 @@ function applyLorebookFeatureState() {
     if (enabled) return;
 
     document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
-    document.getElementById('world_popup_entries_list')?.classList.remove('foldy-lore-root', 'foldy-searching');
+    const list = document.getElementById('world_popup_entries_list');
+    list?.classList.remove('foldy-lore-root', 'foldy-searching', 'foldy-lore-pending');
+    list?.querySelectorAll('.foldy-folder').forEach(element => element.remove());
+    loreObserver?.disconnect();
     if (sort?.value === LORE_SORT_VALUE) {
         sort.value = '0';
         accountStorage.setItem(SORT_ORDER_KEY, '0');
-        const name = selectedLorebookName();
-        if (name) reloadEditor(name, true);
+    }
+    const name = selectedLorebookName();
+    if (name) setTimeout(() => reloadEditor(name, true), 0);
+    if (list && loreObserver) {
+        setTimeout(() => loreObserver?.observe(list, { childList: true }), 0);
     }
 }
 
@@ -3475,12 +3703,6 @@ async function importRegexLayoutBundle(bundle, typeKey) {
         return;
     }
     const label = REGEX_TYPES[typeKey].label;
-    const confirmed = await Popup.show.confirm(
-        '정규식 폴더 구조 불러오기',
-        `이 폴더 구조를 현재 ${label} 정규식 목록에 적용할까요? 정규식 내용은 바뀌지 않습니다.`,
-    );
-    if (!confirmed) return;
-
     const type = REGEX_TYPES[typeKey].scriptType;
     const owner = regexOwnerKey(typeKey);
     const scripts = getScriptsByType(type);
@@ -3507,6 +3729,12 @@ async function importRegexLayoutBundle(bundle, typeKey) {
         const target = direct || byName;
         if (target?.id != null) idMap.set(String(sourceId), String(target.id));
     }
+    const sourceItemCount = new Set(flattenLayout(bundle.layout)).size;
+    const confirmed = await Popup.show.confirm(
+        '정규식 폴더 구조 불러오기',
+        `이 폴더 구조를 현재 ${label} 정규식 목록에 적용할까요? 정규식 내용은 바뀌지 않습니다.\n\n현재 스크립트: ${currentIds.length}개\n구조 번들 항목: ${sourceItemCount}개\n매칭된 항목: ${idMap.size}개\n매칭 실패: ${Math.max(0, sourceItemCount - idMap.size)}개`,
+    );
+    if (!confirmed) return;
 
     const currentLayout = normalizeLayout(null, currentIds);
     const importedLayout = remapImportedLayout(bundle.layout, idMap);
@@ -3570,8 +3798,15 @@ async function importRegexBundle(typeKey) {
         return;
     }
     const label = REGEX_TYPES[typeKey].label;
-    const confirmed = await Popup.show.confirm('정규식 번들 불러오기', `이 Foldy 번들을 현재 ${label} 정규식 목록으로 불러올까요? 같은 이름의 정규식 스크립트는 대체되고, 나머지는 추가됩니다.`);
+    const currentScriptsForConfirm = getScriptsByType(REGEX_TYPES[typeKey].scriptType);
+    const existingNames = new Set(currentScriptsForConfirm.map(script => nameKey(script?.scriptName)).filter(Boolean));
+    const replacedCount = bundle.scripts.filter(script => existingNames.has(nameKey(script?.scriptName))).length;
+    const importedScriptCount = bundle.scripts.filter(Boolean).length;
+    const confirmed = await Popup.show.confirm('정규식 번들 불러오기', replacedCount
+        ? `현재 ${label} 정규식 목록에서 같은 이름의 스크립트 ${replacedCount}개가 이 번들 내용으로 덮어써집니다. 나머지는 추가됩니다.\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n덮어쓸 스크립트: ${replacedCount}개\n\n계속하면 덮어쓰기 전 백업 파일을 자동으로 내려받습니다. 계속할까요?`
+        : `이 Foldy 번들을 현재 ${label} 정규식 목록에 추가하고 폴더 구조를 적용할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개`);
     if (!confirmed) return;
+    if (replacedCount) backupExistingRegex(typeKey);
 
     const type = REGEX_TYPES[typeKey].scriptType;
     const owner = regexOwnerKey(typeKey);
@@ -3678,6 +3913,10 @@ function setupRegexSortable(typeKey, owner, layout) {
         try {
             list.querySelectorAll('.foldy-folder').forEach(updateFolderCount);
             const next = regexLayoutFromDom(list, layout, typeKey);
+            if (shouldRejectDomLayout(layout, next, '정규식')) {
+                enhanceRegexLists();
+                return;
+            }
             Object.assign(layout, next);
             await persistRegexLayout(typeKey, owner, layout);
             if (getCurrentChatId()) await reloadCurrentChat();
