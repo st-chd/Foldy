@@ -1,0 +1,949 @@
+.foldy-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    margin: 0.35em 0;
+}
+
+.foldy-create-folder,
+.foldy-lore-create,
+.foldy-bundle-button,
+.foldy-collapse-all,
+.foldy-expand-all,
+.foldy-lore-collapse-all,
+.foldy-lore-expand-all,
+.foldy-root-bulk-move,
+.foldy-lore-bulk-setting {
+    font-size: inherit;
+    line-height: normal;
+    white-space: nowrap;
+}
+
+.foldy-labeled-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: max-content;
+    max-width: none;
+    height: auto;
+    writing-mode: horizontal-tb;
+    white-space: nowrap;
+    line-height: normal;
+    text-align: center;
+}
+
+.foldy-labeled-button > span {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+#completion_prompt_manager .foldy-toolbar[data-foldy-toolbar="prompt"] {
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25em;
+    width: calc(100% - 0.5em);
+    box-sizing: border-box;
+    margin: 0.35em 0.25em;
+}
+
+#completion_prompt_manager .foldy-toolbar[data-foldy-toolbar="prompt"] > .menu_button {
+    height: 2em;
+    min-height: 2em;
+    box-sizing: border-box;
+    margin: 0;
+    line-height: 1;
+}
+
+#completion_prompt_manager .foldy-toolbar[data-foldy-toolbar="prompt"] > .foldy-labeled-button {
+    display: inline-flex;
+    align-items: center;
+}
+
+.foldy-toolbar-summary {
+    flex: 1 1 7em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.68;
+    font-size: 0.9em;
+}
+
+@media (max-width: 480px) {
+    #completion_prompt_manager .foldy-toolbar[data-foldy-toolbar="prompt"] {
+        flex-wrap: nowrap;
+    }
+
+    #completion_prompt_manager .foldy-toolbar[data-foldy-toolbar="prompt"] .foldy-toolbar-summary {
+        display: none;
+    }
+}
+
+.foldy-root-bulk-move {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 2.2em;
+}
+
+.foldy-lore-bulk-setting.foldy-labeled-button {
+    min-width: 2.2em;
+    justify-content: center;
+}
+
+.foldy-lore-bulk-setting.foldy-labeled-button > span:not(.fa-solid) {
+    display: none;
+}
+
+.foldy-code-icon {
+    font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
+    font-weight: 900;
+}
+
+.foldy-folder {
+    --foldy-background-color: var(--SmartThemeBlurTintColor);
+    --foldy-border-color: var(--SmartThemeBorderColor);
+    --foldy-name-color: inherit;
+    display: block;
+    list-style: none;
+    margin: 0.35em 0;
+    border: 1px solid var(--foldy-border-color);
+    border-radius: 8px;
+    background: var(--foldy-background-color);
+    overflow: visible;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list > li.foldy-folder,
+#completion_prompt_manager #completion_prompt_manager_list .foldy-folder {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.foldy-folder-header {
+    display: flex;
+    align-items: center;
+    gap: 0.45em;
+    min-height: 2.4em;
+    padding: 0.35em 0.55em;
+    cursor: pointer;
+    flex-wrap: nowrap;
+    min-width: 0;
+    position: relative;
+}
+
+.foldy-folder-header button,
+.foldy-folder-header .foldy-drag {
+    cursor: revert;
+}
+
+.foldy-folder-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45em;
+    flex: 0 0 auto;
+}
+
+.foldy-folder-more {
+    display: none;
+    flex: 0 0 auto;
+}
+
+.foldy-folder-name {
+    color: var(--foldy-name-color);
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.foldy-folder-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.65em;
+    height: 1.45em;
+    padding: 0 0.45em;
+    border: 1px solid color-mix(in srgb, var(--foldy-border-color) 70%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--foldy-border-color) 18%, transparent);
+    color: var(--foldy-name-color);
+    font-size: 0.78em;
+    font-weight: 600;
+    line-height: 1;
+    opacity: 0.9;
+    flex: 0 0 auto;
+}
+
+.foldy-folder-header > button,
+.foldy-folder-header > .foldy-drag,
+.foldy-folder-header > .foldy-state-badge,
+.foldy-folder-actions > button {
+    flex: 0 0 auto;
+}
+
+.foldy-state-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35em;
+    height: 1.35em;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 22%, transparent);
+    border-radius: 999px;
+    background: #f97316;
+    color: white;
+    font-size: 0.78em;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.foldy-folder-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 2.4em;
+    margin: 0;
+    padding: 0 0.35em 0.35em;
+    list-style: none;
+}
+
+.foldy-regex-items {
+    padding: 0 0.35em 0.35em;
+}
+
+.foldy-regex-items:empty {
+    min-height: 2.4em;
+}
+
+.foldy-folder.is-collapsed .foldy-folder-items {
+    display: none;
+}
+
+.foldy-edit-form {
+    display: grid;
+    gap: 0.85em;
+    width: min(28em, 82vw);
+    max-width: 100%;
+    text-align: left;
+    align-content: start;
+    overflow: visible;
+}
+
+.foldy-folder-settings-form {
+    padding-bottom: 0.4em;
+}
+
+.popup:has(.foldy-folder-settings-form) .popup-body,
+.popup:has(.foldy-folder-settings-form) .popup-content {
+    overflow: visible;
+}
+
+.foldy-move-form {
+    display: grid;
+    gap: 0.85em;
+    width: min(24em, calc(100vw - 3em));
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    text-align: left;
+    overflow: hidden;
+}
+
+.popup:has(.foldy-move-form),
+.popup:has(.foldy-move-form) .popup-body,
+.popup:has(.foldy-move-form) .popup-content {
+    width: fit-content;
+    max-width: calc(100vw - 1em);
+    box-sizing: border-box;
+    overflow-x: hidden;
+}
+
+.foldy-export-form {
+    display: grid;
+    gap: 0.75em;
+    width: min(28em, 82vw);
+    text-align: left;
+}
+
+.foldy-export-hint {
+    font-size: 0.9em;
+    opacity: 0.8;
+    line-height: 1.35;
+}
+
+.foldy-edit-title {
+    font-weight: 700;
+    color: var(--SmartThemeBodyColor);
+}
+
+.foldy-create-items {
+    display: grid;
+    gap: 0;
+}
+
+.foldy-create-items-title {
+    font-weight: 600;
+    color: var(--SmartThemeBodyColor);
+}
+
+.foldy-selection-toolbar {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    align-items: center;
+    justify-content: start;
+    gap: 0.3em;
+    padding: 0.45em;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-bottom: 0;
+    border-radius: 6px 6px 0 0;
+    font-weight: 700;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 72%, transparent);
+    cursor: pointer;
+    user-select: none;
+}
+
+.foldy-selection-toolbar input[type="checkbox"] {
+    cursor: pointer;
+    margin: 0;
+}
+
+.foldy-selection-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.foldy-create-items-list {
+    display: grid;
+    gap: 0;
+    max-height: min(18em, 45vh);
+    overflow: auto;
+    padding: 0.45em;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 0 0 6px 6px;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.foldy-create-items-list label {
+    min-width: 0;
+    align-items: center;
+}
+
+.foldy-create-items-list span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.foldy-target-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em 0.85em;
+    min-width: 0;
+}
+
+.foldy-edit-form .foldy-target-option {
+    display: inline-flex;
+    grid-template-columns: none;
+    align-items: center;
+    gap: 0.35em;
+    white-space: nowrap;
+}
+
+.foldy-edit-form .foldy-target-option input {
+    margin: 0;
+}
+
+.foldy-empty-hint {
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.75;
+    padding: 0.1em 0.15em;
+}
+
+.foldy-edit-form label,
+.foldy-move-form label {
+    display: grid;
+    grid-template-columns: 6.5em minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75em;
+}
+
+.foldy-edit-form label > span:first-child,
+.foldy-move-form label > span:first-child {
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.9;
+}
+
+.foldy-edit-form .foldy-selection-toolbar,
+.foldy-move-form .foldy-selection-toolbar {
+    grid-template-columns: max-content max-content;
+    gap: 0.3em;
+    justify-content: start;
+}
+
+.foldy-edit-form .foldy-create-items-list label,
+.foldy-move-form .foldy-create-items-list label {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.3em;
+    padding: 0.2em 0;
+    justify-content: start;
+}
+
+.foldy-edit-form .foldy-create-items-list label > input[type="checkbox"],
+.foldy-move-form .foldy-create-items-list label > input[type="checkbox"] {
+    margin: 0;
+}
+
+.foldy-edit-form .foldy-create-items-list label > span:last-child,
+.foldy-move-form .foldy-create-items-list label > span:last-child {
+    opacity: 1;
+}
+
+.foldy-edit-form input[type="text"] {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 86%, black);
+    color: var(--SmartThemeBodyColor);
+}
+
+.foldy-edit-form input[type="text"] {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.45em 0.65em;
+}
+
+.foldy-color-controls {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5em;
+    overflow: visible;
+}
+
+.foldy-color-controls toolcool-color-picker {
+    width: 2.8em;
+    height: 2.15em;
+    flex: 0 0 auto;
+}
+
+.foldy-color-reset {
+    min-width: max-content;
+    white-space: nowrap;
+}
+
+.foldy-edit-form .foldy-apply-style-all {
+    display: inline-flex;
+    grid-template-columns: none;
+    justify-self: start;
+    align-items: center;
+    gap: 0.55em;
+    white-space: nowrap;
+    line-height: 1.2;
+    min-height: 1.6em;
+}
+
+.foldy-edit-form .foldy-apply-style-all input[type="checkbox"] {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.foldy-move-to-folder {
+    flex: 0 0 auto;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .foldy-move-to-folder {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 17px;
+    width: 17px;
+    margin-left: 0.25em;
+    cursor: pointer;
+    font-size: 0.86em;
+    opacity: 0.4;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .foldy-move-to-folder:hover {
+    opacity: 1;
+}
+
+.foldy-drop-placeholder {
+    min-height: 2.4em;
+    width: 100%;
+    border: 1px dashed var(--SmartThemeQuoteColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 8%, transparent);
+}
+
+.foldy-dropping-into-folder > .foldy-drop-placeholder {
+    display: none;
+}
+
+.foldy-drop-target {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: 2px;
+}
+
+.foldy-drop-target > .foldy-folder-items {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 10%, transparent);
+}
+
+.foldy-drop-target > .foldy-prompt-items:empty {
+    min-height: 3.2em;
+}
+
+.foldy-drop-target > .foldy-prompt-items > .foldy-drop-placeholder {
+    margin: 0.25em 0;
+}
+
+.ui-sortable-helper.regex-script-label,
+.ui-sortable-helper.completion_prompt_manager_prompt,
+.ui-sortable-helper.world_entry {
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 10000;
+}
+
+.foldy-prompt-items:empty {
+    min-height: 2.4em;
+}
+
+.foldy-lore-items:empty {
+    min-height: 2.4em;
+}
+
+button[hidden].foldy-lore-create,
+button[hidden].foldy-lore-bundle,
+button[hidden].foldy-lore-expand-all,
+button[hidden].foldy-lore-collapse-all {
+    display: none !important;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(5.5em, auto) auto;
+    align-items: center;
+    gap: 0.45em;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list .foldy-folder-items > li.completion_prompt_manager_prompt {
+    margin: 0 0 0.35em;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .completion_prompt_manager_prompt_name {
+    min-width: 0;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls {
+    gap: 0.35em;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_tokens {
+    min-width: 2.5em;
+}
+
+.foldy-lore-entry-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25em;
+    margin-left: auto;
+}
+
+.foldy-state-toggle[data-state="mixed"] {
+    color: var(--SmartThemeQuoteColor);
+}
+
+.foldy-settings .inline-drawer-content {
+    gap: 0.35em;
+}
+
+.foldy-settings-clear {
+    display: grid;
+    gap: 0.35em;
+    margin-top: 0.6em;
+}
+
+.foldy-settings-subtitle {
+    font-size: 0.9em;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+.foldy-settings-hint {
+    color: var(--SmartThemeBodyColor);
+    font-size: 0.85em;
+    line-height: 1.35;
+    opacity: 0.72;
+}
+
+.foldy-settings-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(4.8em, 1fr));
+    align-items: center;
+    gap: 0.4em;
+    width: 100%;
+}
+
+.foldy-settings-actions .menu_button {
+    width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+    font-size: 0.9em;
+    padding: 0.35em 0.55em;
+}
+
+.foldy-clear-form {
+    display: grid;
+    gap: 0.75em;
+    width: min(28em, calc(100vw - 2em));
+    max-width: 100%;
+    text-align: left;
+}
+
+.foldy-clear-options {
+    display: grid;
+    gap: 0.35em;
+}
+
+.foldy-clear-options label {
+    align-items: center;
+}
+
+.foldy-confirm-body {
+    text-align: left;
+}
+
+.foldy-confirm-message {
+    white-space: pre-line;
+}
+
+.foldy-clear-details {
+    min-width: 0;
+}
+
+.foldy-clear-active .foldy-create-items-list {
+    max-height: min(14em, 36vh);
+}
+
+.foldy-clear-unused-preview {
+    display: grid;
+    gap: 0.35em;
+    padding: 0.65em;
+    min-width: 0;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 78%, transparent);
+}
+
+.foldy-clear-unused-title {
+    font-weight: 600;
+}
+
+.foldy-clear-unused-preview ul {
+    max-height: min(14em, 36vh);
+    overflow: auto;
+    margin: 0;
+    padding-left: 1.25em;
+}
+
+.foldy-clear-unused-preview li {
+    overflow-wrap: anywhere;
+}
+
+.foldy-regex-root .regex-script-label {
+    width: 100%;
+}
+
+.foldy-searching .foldy-drag,
+.foldy-searching .drag-handle {
+    pointer-events: none;
+    opacity: 0.35;
+}
+
+#world_popup_entries_list.foldy-lore-pending > .world_entry {
+    visibility: hidden;
+}
+
+@media (max-width: 700px) {
+    .foldy-toolbar {
+        justify-content: flex-end;
+        gap: 0.35em;
+    }
+
+    .foldy-edit-form label,
+    .foldy-move-form label {
+        grid-template-columns: 1fr;
+        gap: 0.35em;
+        min-width: 0;
+    }
+
+    .foldy-move-form {
+        width: min(100%, calc(100vw - 3em));
+        min-width: min(80vw, calc(100vw - 3em));
+    }
+
+    .popup:has(.foldy-move-form),
+    .popup:has(.foldy-move-form) .popup-body,
+    .popup:has(.foldy-move-form) .popup-content {
+        min-width: min(80vw, calc(100vw - 2em));
+    }
+
+    .foldy-move-form select,
+    .foldy-move-form input,
+    .foldy-move-form .text_pole {
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .foldy-color-controls {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.35em;
+    }
+
+    .foldy-color-reset {
+        grid-column: auto;
+        justify-self: stretch;
+        min-width: max-content;
+        padding-left: 0.55em;
+        padding-right: 0.55em;
+    }
+
+    .foldy-folder-header {
+        gap: 0.35em;
+        padding: 0.3em 0.45em;
+    }
+
+    .foldy-folder-header .foldy-collapse-toggle {
+        display: none;
+    }
+
+    .foldy-folder-more {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.25em;
+        min-width: 2.25em;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .foldy-folder-actions {
+        display: none;
+        position: fixed;
+        right: max(0.45em, env(safe-area-inset-right));
+        top: auto;
+        z-index: 20;
+        max-width: calc(100vw - 1.25em);
+        padding: 0.35em;
+        border: 1px solid var(--SmartThemeBorderColor);
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 94%, black);
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.35em;
+    }
+
+    #world_popup_entries_list .foldy-folder-actions {
+        transform: translateY(0.15em);
+    }
+
+    .foldy-folder.is-actions-open > .foldy-folder-header .foldy-folder-actions {
+        display: flex;
+    }
+
+    .foldy-folder-actions > .menu_button {
+        width: 2.35em;
+        min-width: 2.35em;
+        height: 2.35em;
+        padding: 0;
+    }
+
+    #world_popup_entries_list .foldy-folder-actions > .menu_button {
+        width: 2.15em;
+        min-width: 2.15em;
+        height: 2.15em;
+    }
+
+    #world_popup_entries_list.foldy-lore-root > .world_entry .foldy-lore-entry-actions > .menu_button,
+    #world_popup_entries_list .foldy-lore-items > .world_entry .foldy-lore-entry-actions > .menu_button {
+        flex: 0 0 2.15em;
+        width: 2.15em;
+        min-width: 2.15em;
+        height: 2.15em;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    #world_popup_entries_list.foldy-lore-root > .world_entry .inline-drawer-header,
+    #world_popup_entries_list .foldy-lore-items > .world_entry .inline-drawer-header {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+        column-gap: 0.35em;
+    }
+
+    #world_popup_entries_list.foldy-lore-root > .world_entry .inline-drawer-header > .drag-handle,
+    #world_popup_entries_list.foldy-lore-root > .world_entry .inline-drawer-header > .inline-drawer-icon,
+    #world_popup_entries_list .foldy-lore-items > .world_entry .inline-drawer-header > .drag-handle,
+    #world_popup_entries_list .foldy-lore-items > .world_entry .inline-drawer-header > .inline-drawer-icon {
+        grid-column: 1;
+    }
+
+    #world_popup_entries_list.foldy-lore-root > .world_entry .inline-drawer-header > .drag-handle,
+    #world_popup_entries_list .foldy-lore-items > .world_entry .inline-drawer-header > .drag-handle {
+        grid-row: 1;
+        align-self: center;
+    }
+
+    #world_popup_entries_list.foldy-lore-root > .world_entry .inline-drawer-header > .inline-drawer-content,
+    #world_popup_entries_list .foldy-lore-items > .world_entry .inline-drawer-header > .inline-drawer-content {
+        grid-column: 2;
+        min-width: 0;
+    }
+
+    #world_popup_entries_list.foldy-lore-root > .world_entry .foldy-lore-entry-actions,
+    #world_popup_entries_list .foldy-lore-items > .world_entry .foldy-lore-entry-actions {
+        grid-column: 2;
+        justify-self: end;
+        margin-left: 0;
+        margin-top: 0.35em;
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .world_entry_thin_controls {
+        display: grid !important;
+        grid-template-columns: auto auto minmax(0, 1fr);
+        align-items: center;
+        column-gap: 0.35em;
+        row-gap: 0.45em;
+        min-width: 0;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .world_entry_thin_controls > .inline-drawer-icon {
+        grid-column: 1;
+        grid-row: 2;
+        align-self: center;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .world_entry_thin_controls > .killSwitch {
+        grid-column: 2;
+        grid-row: 2;
+        align-self: center;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .world_entry_thin_controls > .flex-container {
+        display: grid !important;
+        grid-column: 3;
+        grid-row: 1 / span 3;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.45em;
+        align-items: start;
+        min-width: 0;
+        width: 100%;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .WIEntryTitleAndStatus {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.35em;
+        align-items: center;
+        min-width: 0;
+        width: 100%;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .WIEntryTitleAndStatus > .flex-container {
+        min-width: 0;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .WIEntryTitleAndStatus textarea[name="comment"] {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .WIEnteryHeaderControls {
+        display: grid !important;
+        grid-template-columns: minmax(7.6em, max-content) minmax(4.4em, max-content);
+        gap: 0.45em 0.45em;
+        justify-content: start;
+        min-width: 0;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .WIEnteryHeaderControls > .world_entry_form_control {
+        display: flex !important;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.2em;
+        min-width: 0;
+        width: auto;
+        max-width: 100%;
+    }
+
+    :where(#world_popup_entries_list.foldy-lore-root > .world_entry, #world_popup_entries_list .foldy-lore-items > .world_entry) .WIEnteryHeaderControls :is(select, input) {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    .foldy-settings-actions {
+        grid-template-columns: repeat(auto-fit, minmax(4.8em, 1fr));
+    }
+}
+
+@media (min-width: 481px) {
+    .foldy-folder-header .foldy-collapse-toggle {
+        display: inline-flex !important;
+    }
+
+    .foldy-folder-more {
+        display: none !important;
+    }
+
+    .foldy-folder-actions {
+        display: inline-flex !important;
+        position: static;
+        right: auto;
+        top: auto;
+        z-index: auto;
+        max-width: none;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        flex-wrap: nowrap;
+        justify-content: flex-end;
+    }
+}
+
+@media (max-width: 480px) {
+    .foldy-folder-header .foldy-collapse-toggle {
+        display: none !important;
+    }
+
+    .foldy-folder-more {
+        display: inline-flex !important;
+    }
+
+}
