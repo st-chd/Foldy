@@ -265,19 +265,19 @@ export function createFoldyDataCleanup({
         const live = liveFoldyOwners();
         return {
             layouts: {
-                prompts: Object.keys(state.layouts.prompts || {}).filter(owner => !live.prompts.has(owner)),
-                lorebooks: Object.keys(state.layouts.lorebooks || {}).filter(owner => !live.lorebooks.has(owner) && !isPlaceholderLoreOwner(owner)),
+                prompts: Object.keys(state.layouts.prompts || {}).filter(owner => hasStoredFolders(state.layouts.prompts[owner]) && !live.prompts.has(owner)),
+                lorebooks: Object.keys(state.layouts.lorebooks || {}).filter(owner => hasStoredFolders(state.layouts.lorebooks[owner]) && !live.lorebooks.has(owner) && !isPlaceholderLoreOwner(owner)),
                 regex: Object.fromEntries(Object.keys(regexTypes).map(typeKey => [
                     typeKey,
                     live.unknownRegexOwners.has(typeKey)
                         ? []
-                        : Object.keys(state.layouts.regex?.[typeKey] || {}).filter(owner => !live.regexLayouts[typeKey].has(owner)),
+                        : Object.keys(state.layouts.regex?.[typeKey] || {}).filter(owner => hasStoredFolders(state.layouts.regex?.[typeKey]?.[owner]) && !live.regexLayouts[typeKey].has(owner)),
                 ])),
             },
             collapsed: {
-                prompt: Object.keys(state.collapsed.prompt || {}).filter(owner => !live.collapsed.prompt.has(owner)),
-                lore: Object.keys(state.collapsed.lore || {}).filter(owner => !live.collapsed.lore.has(owner) && !isPlaceholderLoreOwner(owner)),
-                regex: Object.keys(state.collapsed.regex || {}).filter(owner => !live.collapsed.regex.has(owner)),
+                prompt: Object.keys(state.collapsed.prompt || {}).filter(owner => hasCollapsedFolders(state.collapsed.prompt[owner]) && !live.collapsed.prompt.has(owner)),
+                lore: Object.keys(state.collapsed.lore || {}).filter(owner => hasCollapsedFolders(state.collapsed.lore[owner]) && !live.collapsed.lore.has(owner) && !isPlaceholderLoreOwner(owner)),
+                regex: Object.keys(state.collapsed.regex || {}).filter(owner => hasCollapsedFolders(state.collapsed.regex[owner]) && !live.collapsed.regex.has(owner)),
             },
         };
     }
@@ -323,6 +323,10 @@ export function createFoldyDataCleanup({
 
     function hasStoredFolders(layout) {
         return Array.isArray(layout?.folders) && layout.folders.length > 0;
+    }
+
+    function hasCollapsedFolders(value) {
+        return Array.isArray(value) && value.length > 0;
     }
 
     function activeFoldyFolderItems(scope = 'all') {
@@ -447,4 +451,3 @@ export function createFoldyDataCleanup({
         clearAllFoldyData,
     };
 }
-

@@ -354,12 +354,16 @@ function disableFeatureForCompatibility(name, label, detail) {
 
 function ownerCollapsed(kind, owner) {
     const bucket = settings().collapsed[kind];
-    bucket[owner] ??= [];
     return new Set(bucket[owner]);
 }
 
 function saveCollapsed(kind, owner, values) {
-    settings().collapsed[kind][owner] = [...values];
+    const collapsed = [...values];
+    if (collapsed.length) {
+        settings().collapsed[kind][owner] = collapsed;
+    } else {
+        delete settings().collapsed[kind][owner];
+    }
     saveSettingsDebounced();
 }
 
