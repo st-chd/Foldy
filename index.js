@@ -845,9 +845,9 @@ async function requestLoreFolderStrategy(folder) {
     const select = document.createElement('select');
     select.className = 'text_pole';
     [
-        ['normal', 'Normal enabled'],
-        ['constant', 'Constant enabled'],
-        ['vectorized', 'Vectorized'],
+        ['normal', '키워드 활성화'],
+        ['constant', '상시 활성화'],
+        ['vectorized', '벡터화됨'],
     ].forEach(([value, labelText]) => {
         const option = document.createElement('option');
         option.value = value;
@@ -875,16 +875,16 @@ async function requestLoreFolderPosition(folder) {
     const select = document.createElement('select');
     select.className = 'text_pole';
     [
-        ['0:', 'Before character definition'],
-        ['1:', 'After character definition'],
-        ['5:', 'Before examples'],
-        ['6:', 'After examples'],
-        ['2:', 'Before author note'],
-        ['3:', 'After author note'],
-        ['4:0', '@D depth'],
-        ['4:1', '@D role'],
-        ['4:2', '@D scan'],
-        ['7:', 'Before outlet'],
+        ['0:', '캐릭터 정의 전'],
+        ['1:', '캐릭터 정의 후'],
+        ['5:', '↑ EM'],
+        ['6:', '↓ EM'],
+        ['2:', '작가 노트 전'],
+        ['3:', '작가 노트 후'],
+        ['4:0', '@D ⚙️'],
+        ['4:1', '@D 👤'],
+        ['4:2', '@D 🤖'],
+        ['7:', '➡️ outlet'],
     ].forEach(([value, labelText]) => {
         const option = document.createElement('option');
         option.value = value;
