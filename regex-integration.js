@@ -1,5 +1,4 @@
 import {
-    applyFolderStyleToAll,
     closeOpenFolderMenus,
     enabledState,
     updateFolderCount,
@@ -14,21 +13,23 @@ import {
     importedLayoutSummary,
     nameKey,
     uniqueNameMap,
+    uniqueNameIndex,
 } from './bundle-utils.js';
 import {
-    addFolderWithItems,
     createRenderGate,
     flattenLayout,
     generateUUID,
+    layoutWithAddedFolder,
+    layoutWithItemsMovedToFolder,
+    layoutWithUpdatedFolder,
     layoutFromTree,
     mergeImportedLayout,
-    moveItemsToFolder,
     normalizeLayout,
     orderItemsByLayout,
     removeFolder,
     remapImportedLayout,
 } from './model.js';
-export function regexLayoutFromDom(list, sourceLayout, allIds) {
+export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
     const visibleIds = new Set([...list.querySelectorAll('.regex-script-label')]
         .map(element => element.id)
         .filter(Boolean));
@@ -48,11 +49,10 @@ export function regexLayoutFromDom(list, sourceLayout, allIds) {
             nodes.push({ type: 'item', id: element.id });
         }
     }
-    return layoutFromTree(nodes, sourceLayout, allIds);
+    return layoutFromTree(nodes, sourceLayout, allIds, options);
 }
 
 export function createRegexIntegration({
-    extensionName,
     regexTypes,
     scriptTypes,
     featureEnabled,
@@ -180,8 +180,10 @@ export function createRegexIntegration({
             saving = true;
             try {
                 list.querySelectorAll('.foldy-folder').forEach(updateFolderCount);
-                const next = regexLayoutFromDomImpl(list, layout, regexItemIds(typeKey));
-                if (shouldRejectDomLayout(layout, next, '정규식')) {
+                const next = regexLayoutFromDomImpl(list, layout, regexItemIds(typeKey), {
+                    onMissingSourceFolders: ids => debugLog('정규식 DOM에 저장된 폴더가 없습니다.', ids),
+                });
+                if (shouldRejectDomLayout(layout, next, 'Regex')) {
                     enhanceRegexLists();
                     return;
                 }
@@ -190,9 +192,8 @@ export function createRegexIntegration({
                 if (getCurrentChatId()) await reloadCurrentChat();
                 enhanceRegexLists();
             } catch (error) {
-                console.error(`[${extensionName}] Failed to save regex folder order`, error);
-                debugLog('정규식 폴더 순서 저장 실패', error);
-                toastr.error('정규식 폴더 순서를 저장하지 못했습니다.');
+                debugLog('정규식 폴더 표시 실패', error);
+                toastr.error('정규식 폴더를 표시하지 못했습니다.');
             } finally {
                 saving = false;
             }
@@ -213,9 +214,7 @@ export function createRegexIntegration({
             rerender: () => enhanceRegexLists(),
             saveFromDom,
             debugLog,
-            extensionName,
             domainLabel: '정규식',
-            errorLabel: 'regex',
             appendPlaceholderToFolder: true,
             dataKey: 'foldySortable',
         });
@@ -262,15 +261,15 @@ export function createRegexIntegration({
             const values = await requestFolderSettings(layout, folder);
             if (!values) return;
             if (rerenderIfRegexContextChanged()) return;
-            if (values.applyStyleToAll) applyFolderStyleToAll(layout, folder.id, values);
-            delete values.applyStyleToAll;
-            Object.assign(folder, values);
-            await persistRegexLayout(typeKey, owner, layout, false);
+            const { applyStyleToAll, ...folderValues } = values;
+            const result = layoutWithUpdatedFolder(layout, folder.id, folderValues, { applyStyleToAll });
+            currentRegexLayouts[typeKey] = result.layout;
+            await persistRegexLayout(typeKey, owner, result.layout, false);
             rerender();
         };
         const onDelete = async id => {
             const folder = layout.folders.find(value => value.id === id);
-            if (!folder || !await confirmFolderDelete(folder.name, '정규식 스크립트는')) return;
+            if (!folder || !await confirmFolderDelete(folder.name, '정규식 스크립트')) return;
             if (rerenderIfRegexContextChanged()) return;
             const nextLayout = removeFolder(layout, id);
             await persistRegexLayout(typeKey, owner, nextLayout);
@@ -286,9 +285,9 @@ export function createRegexIntegration({
                         kind: 'regex',
                         layout,
                         itemId: node.id,
-                        onMove: async () => {
+                        onMove: async movedLayout => {
                             if (rerenderIfRegexContextChanged()) return;
-                            await persistRegexLayout(typeKey, owner, layout);
+                            await persistRegexLayout(typeKey, owner, movedLayout);
                             rerender();
                         },
                     });
@@ -318,8 +317,9 @@ export function createRegexIntegration({
                     const values = await requestFlexibleBulkMove(layout, id, labels);
                     if (!values) return;
                     if (rerenderIfRegexContextChanged()) return;
-                    if (!moveItemsToFolder(layout, values.itemIds, values.targetFolderId)) return;
-                    await persistRegexLayout(typeKey, owner, layout);
+                    const result = layoutWithItemsMovedToFolder(layout, values.itemIds, values.targetFolderId);
+                    if (!result.changed) return;
+                    await persistRegexLayout(typeKey, owner, result.layout);
                     if (getCurrentChatId()) await reloadCurrentChat();
                     rerender();
                 },
@@ -333,16 +333,19 @@ export function createRegexIntegration({
                         kind: 'regex',
                         layout,
                         itemId: id,
-                        onMove: async () => {
+                        onMove: async movedLayout => {
                             if (rerenderIfRegexContextChanged()) return;
-                            await persistRegexLayout(typeKey, owner, layout);
+                            await persistRegexLayout(typeKey, owner, movedLayout);
                             rerender();
                         },
                     });
                     items.append(item);
                 }
             });
-            updateFolderCount(folderElement);
+            updateFolderCount(folderElement, {
+                itemIdFromElement: item => item.id,
+                isItemEnabled: id => !scriptsById.get(String(id))?.disabled,
+            });
             list.append(folderElement);
         }
 
@@ -350,9 +353,9 @@ export function createRegexIntegration({
             const values = await requestNewRegexFolder(typeKey);
             if (!values) return;
             const { owner: targetOwner, layout: targetLayout } = readRegexLayout(values.typeKey);
-            const folder = addFolderWithItems(targetLayout, values.name, values.itemIds);
-            collapseNewFolder('regex', `${values.typeKey}:${targetOwner}`, folder.id);
-            await persistRegexLayout(values.typeKey, targetOwner, targetLayout, false);
+            const result = layoutWithAddedFolder(targetLayout, values.name, values.itemIds);
+            collapseNewFolder('regex', `${values.typeKey}:${targetOwner}`, result.folder.id);
+            await persistRegexLayout(values.typeKey, targetOwner, result.layout, false);
             rerender();
         };
         const createHostTypeKey = Object.keys(regexTypes).find(key => document.querySelector(regexTypes[key].selector));
@@ -364,8 +367,9 @@ export function createRegexIntegration({
                 ]));
                 const values = await requestFlexibleBulkMove(layout, null, labels);
                 if (!values) return;
-                if (!moveItemsToFolder(layout, values.itemIds, values.targetFolderId)) return;
-                await persistRegexLayout(typeKey, owner, layout);
+                const result = layoutWithItemsMovedToFolder(layout, values.itemIds, values.targetFolderId);
+                if (!result.changed) return;
+                await persistRegexLayout(typeKey, owner, result.layout);
                 if (getCurrentChatId()) await reloadCurrentChat();
                 rerender();
             }),
@@ -384,7 +388,6 @@ export function createRegexIntegration({
                 Object.keys(regexTypes).forEach(enhanceRegexList);
                 regexObserver?.takeRecords();
             } catch (error) {
-                console.error(`[${extensionName}] Failed to render regex folders`, error);
                 debugLog('정규식 폴더 표시 실패', error);
                 toastr.error('정규식 폴더를 표시하지 못했습니다.');
             } finally {
@@ -403,7 +406,7 @@ export function createRegexIntegration({
             .map(([key, value]) => [key, !!document.querySelector(value.selector)]));
         if (!root || !Object.values(presentLists).some(Boolean)) {
             if (featureEnabled('regex')) {
-                disableFeatureForCompatibility('regex', '정규식', {
+                disableFeatureForCompatibility('regex', 'regex', {
                     regex_container: !!root,
                     lists: presentLists,
                 });
@@ -487,9 +490,9 @@ export function createRegexBundleActions({
         const label = regexTypes[typeKey]?.label || typeKey;
         return requestBundleExportMode(
             `${label} 정규식 내보내기`,
-            '정규식 내용과 폴더 구조',
+            '정규식 스크립트와 폴더 구조',
             '폴더 구조만',
-            '구조만 내보내면 불러올 때 현재 정규식 내용은 그대로 두고 폴더 배치만 적용합니다.',
+            '폴더 구조만 내보내면 불러올 때 현재 정규식 스크립트는 유지하고 폴더 배치만 적용합니다.',
             `foldy_regex_${typeKey}_export_mode`,
         );
     }
@@ -511,22 +514,18 @@ export function createRegexBundleActions({
         const scriptsById = new Map(scripts
             .filter(script => script?.id)
             .map(script => [String(script.id), script]));
-        const nameBuckets = new Map();
-        scripts.forEach(script => {
-            const key = nameKey(script?.scriptName);
-            if (!key) return;
-            if (!nameBuckets.has(key)) nameBuckets.set(key, []);
-            nameBuckets.get(key).push(script);
-        });
+        const scriptNameIndex = uniqueNameIndex(scripts, script => script?.scriptName);
         const refsById = new Map((bundle.scriptRefs || [])
             .filter(ref => ref?.id != null)
             .map(ref => [String(ref.id), ref]));
         const idMap = new Map();
+        let ambiguousNameCount = 0;
         for (const sourceId of flattenLayout(bundle.layout)) {
             const ref = refsById.get(String(sourceId));
             const direct = scriptsById.get(String(sourceId));
-            const nameMatches = ref?.scriptName ? nameBuckets.get(nameKey(ref.scriptName)) || [] : [];
-            const byName = nameMatches.length === 1 ? nameMatches[0] : null;
+            const refNameKey = nameKey(ref?.scriptName);
+            if (!direct && refNameKey && scriptNameIndex.ambiguous.has(refNameKey)) ambiguousNameCount++;
+            const byName = refNameKey ? scriptNameIndex.unique.get(refNameKey) : null;
             const target = direct || byName;
             if (target?.id != null) idMap.set(String(sourceId), String(target.id));
         }
@@ -536,12 +535,12 @@ export function createRegexBundleActions({
             '정규식 폴더 구조 불러오기',
             `이 폴더 구조를 현재 ${label} 정규식 목록에 적용할까요? 정규식 내용은 바뀌지 않습니다.\n\n${importedLayoutSummary({
                 currentLabel: '현재 스크립트',
-                currentOnlyLabel: '현재 목록에만 있는 스크립트',
-                unplacedLabel: '폴더에 배치되지 않을 스크립트',
+                currentOnlyLabel: `현재 ${label} 정규식 목록에만 있는 스크립트`,
                 currentCount: currentIds.length,
                 sourceCount: sourceItemCount,
                 matchedSourceCount: idMap.size,
                 matchedTargetCount,
+                ambiguousCount: ambiguousNameCount,
             })}`,
         );
         if (!confirmed) return;
@@ -606,9 +605,22 @@ export function createRegexBundleActions({
         const scriptsByUniqueName = uniqueNameMap(currentScriptsForConfirm, script => script?.scriptName);
         const replacedCount = bundle.scripts.filter(script => scriptsByUniqueName.has(nameKey(script?.scriptName))).length;
         const importedScriptCount = bundle.scripts.filter(Boolean).length;
+        const sourceLayoutIds = new Set(flattenLayout(bundle.layout));
+        const importedScriptIds = new Set(bundle.scripts
+            .filter(script => script?.id)
+            .map(script => String(script.id)));
+        const matchedLayoutCount = [...sourceLayoutIds].filter(id => importedScriptIds.has(String(id))).length;
+        const layoutSummary = importedLayoutSummary({
+            currentLabel: '가져올 스크립트',
+            currentOnlyLabel: '폴더 구조에 없는 가져올 스크립트',
+            currentCount: importedScriptCount,
+            sourceCount: sourceLayoutIds.size,
+            matchedSourceCount: matchedLayoutCount,
+            matchedTargetCount: matchedLayoutCount,
+        });
         const confirmed = await confirmText('정규식 번들 불러오기', replacedCount
-            ? `현재 ${label} 정규식 목록에서 같은 이름의 스크립트 ${replacedCount}개가 이 번들 내용으로 덮어써집니다. 나머지는 추가됩니다.\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n덮어쓸 스크립트: ${replacedCount}개\n\n계속하면 덮어쓰기 전 백업 파일을 자동으로 내려받습니다. 계속할까요?`
-            : `이 번들을 현재 ${label} 정규식 목록에 추가하고 폴더 구조를 적용할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개`);
+            ? `이름이 같은 기존 ${label} 정규식 스크립트 ${replacedCount}개를 바꾸고 나머지를 추가할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n교체될 스크립트: ${replacedCount}개\n\n덮어쓰기 전에 백업 파일을 내려받습니다.\n\n${layoutSummary}\n\n계속할까요?`
+            : `이 번들을 현재 ${label} 정규식 목록에 추가하고 폴더 구조를 적용할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n\n${layoutSummary}`);
         if (!confirmed) return;
         if (replacedCount) backupExistingRegex(typeKey);
 
@@ -647,6 +659,9 @@ export function createRegexBundleActions({
         const orderedScripts = orderItemsByLayout(layout, [...scriptsById.values()]);
         await saveScriptsByType(orderedScripts, type);
         if (getCurrentChatId()) await reloadCurrentChat();
+        // SillyTavern keeps its list renderer private. The imported scripts
+        // are saved immediately; Foldy re-renders its existing rows without
+        // requiring a non-public host export or a host-file modification.
         enhanceRegexLists();
         renameTracker.notify();
         toastr.success('정규식 번들을 불러왔습니다.');

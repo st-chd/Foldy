@@ -1,7 +1,9 @@
 import {
-    applyFolderStyleToAll,
     closeOpenFolderMenus,
+    enabledItemCount,
     enabledState,
+    folderCountText,
+    setStateButtonIcon,
     updateFolderCount,
 } from './folder-ui.js';
 import {
@@ -18,18 +20,20 @@ import {
     importedLayoutSummary,
     isObjectRecord,
     nameKey,
+    uniqueNameIndex,
 } from './bundle-utils.js';
 import {
     createRenderGate,
     flattenLayout,
+    layoutWithItemMovedToFolder,
+    layoutWithItemsMovedToFolder,
+    layoutWithUpdatedFolder,
     mergeImportedLayout,
-    moveItemsToFolder,
     normalizeLayout,
     removeFolder,
     remapImportedLayout,
 } from './model.js';
 export function createLorebookIntegration({
-    extensionName,
     loreSortValue,
     sortOrderKey,
     featureEnabled,
@@ -47,6 +51,7 @@ export function createLorebookIntegration({
     accountStorage,
     renderTemplateAsync,
     waitUntilCondition,
+    bindAction,
     createIconButton,
     createFolderElement,
     createBundleButtons,
@@ -72,6 +77,8 @@ export function createLorebookIntegration({
 }) {
     const loreRenderGate = createRenderGate();
     let loreObserver = null;
+    let loreListenersAbort = null;
+    let loreSearchRenderTimer = 0;
     let sortingLore = false;
     let currentLoreLayout = null;
 
@@ -102,23 +109,18 @@ export function createLorebookIntegration({
                 Object.assign(layout, next);
                 await persistLoreLayout(owner, layout);
             } catch (error) {
-                console.error(`[${extensionName}] Failed to save lorebook folder order`, error);
-                debugLog('로어북 폴더 순서 저장 실패', error);
-                toastr.error('로어북 폴더 순서를 저장하지 못했습니다.');
+            debugLog('로어북 폴더 순서 저장 실패', error);
+            toastr.error('로어북 폴더 순서를 저장하지 못했습니다.');
                 queueLoreRender();
             } finally {
                 saving = false;
             }
         };
         const moveItemInLayout = async (itemId, folderId) => {
-            const folder = layout.folders.find(value => value.id === folderId);
-            if (!folder) return;
-            layout.root = layout.root.filter(node => !(node.type === 'item' && node.id === itemId));
-            for (const value of layout.folders) {
-                value.items = value.items.filter(id => id !== itemId);
-            }
-            folder.items.push(itemId);
-            await persistLoreLayout(owner, layout);
+            const result = layoutWithItemMovedToFolder(layout, itemId, folderId);
+            if (!result.changed) return;
+            Object.assign(layout, result.layout);
+            await persistLoreLayout(owner, result.layout);
         };
 
         setupFolderSortables({
@@ -137,10 +139,16 @@ export function createLorebookIntegration({
             saveFromDom,
             moveItemToFolder: moveItemInLayout,
             debugLog,
-            extensionName,
             domainLabel: '로어북',
-            errorLabel: 'lorebook',
         });
+    }
+
+    function queueLoreSearchRender() {
+        if (loreSearchRenderTimer) clearTimeout(loreSearchRenderTimer);
+        loreSearchRenderTimer = setTimeout(() => {
+            loreSearchRenderTimer = 0;
+            queueLoreRender();
+        }, 150);
     }
 
     async function renderLorebookFolders() {
@@ -197,9 +205,9 @@ export function createLorebookIntegration({
                     kind: 'lore',
                     layout,
                     itemId: id,
-                    onMove: async () => {
+                    onMove: async movedLayout => {
                         if (rerenderIfLoreContextChanged()) return;
-                        await persistLoreLayout(owner, layout);
+                        await persistLoreLayout(owner, movedLayout);
                         rerender();
                     },
                 });
@@ -211,19 +219,31 @@ export function createLorebookIntegration({
                 const values = await requestFolderSettings(layout, folder);
                 if (!values) return;
                 if (rerenderIfLoreContextChanged()) return;
-                if (values.applyStyleToAll) applyFolderStyleToAll(layout, folder.id, values);
-                delete values.applyStyleToAll;
-                Object.assign(folder, values);
-                await persistLoreLayout(owner, layout);
+                const { applyStyleToAll, ...folderValues } = values;
+                const result = layoutWithUpdatedFolder(layout, folder.id, folderValues, { applyStyleToAll });
+                currentLoreLayout = result.layout;
+                await persistLoreLayout(owner, result.layout);
                 rerender();
             };
             const onDelete = async id => {
                 const folder = layout.folders.find(value => value.id === id);
-                if (!folder || !await confirmFolderDelete(folder.name, '항목은')) return;
+                if (!folder || !await confirmFolderDelete(folder.name, '항목')) return;
                 if (rerenderIfLoreContextChanged()) return;
                 const nextLayout = removeFolder(layout, id);
                 await persistLoreLayout(owner, nextLayout);
                 rerender();
+            };
+            const refreshFolderState = (folderElement, folder) => {
+                const state = enabledState(folder.items.map(id => !data.entries[id]?.disable));
+                const countElement = folderElement.querySelector('.foldy-folder-count');
+                if (countElement) {
+                    countElement.textContent = folderCountText({
+                        enabled: enabledItemCount(folder.items, id => !data.entries[id]?.disable),
+                        total: folder.items.length,
+                    });
+                }
+                const stateButton = folderElement.querySelector('.foldy-state-toggle');
+                if (stateButton) setStateButtonIcon(stateButton, state);
             };
 
             const renderRootNode = async node => {
@@ -233,8 +253,9 @@ export function createLorebookIntegration({
                 }
                 const folder = folderMap.get(node.id);
                 if (!folder) return null;
-                const shownItems = folder.items.filter(id => visibleIds.has(id));
+                const shownItems = loreFolderVisibleItemIds(folder, visibleIds);
                 if (query && !shownItems.length) return null;
+                const deferCollapsedItems = !query && collapsed.has(folder.id);
                 const state = enabledState(folder.items.map(id => !data.entries[id]?.disable));
                 const folderElement = createFolderElement(folder, {
                     kind: 'lore',
@@ -248,21 +269,30 @@ export function createLorebookIntegration({
                         await setLoreFolderEnabled(name, data, layout, id, currentState !== 'on');
                     },
                     extraButtons: createLoreBulkSettingButtons(name, data, layout, folder, rerenderIfLoreContextChanged),
+                    onCollapseChange: (id, isCollapsed) => {
+                        if (!isCollapsed && id === folder.id && deferCollapsedItems) rerender();
+                    },
                     onBulkMove: async id => {
                         const labels = new Map(allEntries.map(entry => [String(entry.uid), loreEntryLabel(entry)]));
                         const values = await requestFlexibleBulkMove(layout, id, labels);
                         if (!values) return;
                         if (rerenderIfLoreContextChanged()) return;
-                        if (!moveItemsToFolder(layout, values.itemIds, values.targetFolderId)) return;
-                        await persistLoreLayout(owner, layout);
+                        const result = layoutWithItemsMovedToFolder(layout, values.itemIds, values.targetFolderId);
+                        if (!result.changed) return;
+                        await persistLoreLayout(owner, result.layout);
                         rerender();
                     },
                 });
                 if (query) folderElement.classList.remove('is-collapsed');
                 const items = folderElement.querySelector('.foldy-folder-items');
-                const blocks = await Promise.all(shownItems.map(id => renderEntryBlock(id)));
+                const itemIdsToRender = loreFolderItemIdsToRender(folder, visibleIds, { query: Boolean(query), collapsed: collapsed.has(folder.id) });
+                const blocks = await Promise.all(itemIdsToRender.map(id => renderEntryBlock(id)));
                 blocks.filter(Boolean).forEach(element => items.append(element));
-                folderElement.querySelector('.foldy-folder-count').textContent = String(folder.items.length);
+                items.addEventListener('click', event => {
+                    if (!event.target.closest?.('[name="entryKillSwitch"]')) return;
+                    refreshFolderState(folderElement, folder);
+                });
+                refreshFolderState(folderElement, folder);
                 return folderElement;
             };
 
@@ -275,7 +305,6 @@ export function createLorebookIntegration({
             if (!query) setupLoreSortables(owner, data, layout);
             else destroyLoreSortables(list);
         } catch (error) {
-            console.error(`[${extensionName}] Failed to render lorebook folders`, error);
             debugLog('로어북 폴더 표시 실패', error);
             toastr.error('로어북 폴더를 표시하지 못했습니다.');
         } finally {
@@ -364,13 +393,9 @@ export function createLorebookIntegration({
             sort.append(option);
         }
         if (!document.getElementById('foldy_lore_create')) {
-            const create = createIconButton('fa-folder-plus', '추가', 'foldy-lore-create');
+            const create = createIconButton('fa-folder-plus', '새 폴더', 'foldy-lore-create');
             create.id = 'foldy_lore_create';
-            create.addEventListener('click', event => {
-                event.preventDefault();
-                event.stopPropagation();
-                withErrorToast('로어북 폴더 생성', createLorebookFolder);
-            });
+            bindAction(create, '로어북 폴더 만들기', createLorebookFolder, { withErrorToast });
             newButton.after(create);
         }
         if (!document.getElementById('foldy_lore_export')) {
@@ -392,6 +417,9 @@ export function createLorebookIntegration({
         }
         applyLorebookFeatureState();
         document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
+        loreListenersAbort?.abort();
+        loreListenersAbort = new AbortController();
+        const listenerOptions = { capture: true, signal: loreListenersAbort.signal };
 
         sort.addEventListener('change', event => {
             if (event.target.value !== loreSortValue) {
@@ -411,24 +439,24 @@ export function createLorebookIntegration({
             event.stopImmediatePropagation();
             accountStorage.setItem(sortOrderKey, loreSortValue);
             queueLoreRender();
-        }, true);
+        }, listenerOptions);
         document.getElementById('world_info_search')?.addEventListener('input', event => {
             if (sort.value !== loreSortValue || !featureEnabled('lorebooks')) return;
             event.stopImmediatePropagation();
-            queueLoreRender();
-        }, true);
+            queueLoreSearchRender();
+        }, listenerOptions);
         document.getElementById('world_refresh')?.addEventListener('click', event => {
             if (sort.value !== loreSortValue || !featureEnabled('lorebooks')) return;
             event.preventDefault();
             event.stopImmediatePropagation();
             queueLoreRender();
-        }, true);
+        }, listenerOptions);
         document.getElementById('world_popup_new')?.addEventListener('click', event => {
             if (sort.value !== loreSortValue || !featureEnabled('lorebooks')) return;
             event.preventDefault();
             event.stopImmediatePropagation();
             createLorebookEntryInFolderOrder();
-        }, true);
+        }, listenerOptions);
         document.getElementById('world_popup_entries_list')?.addEventListener('click', event => {
             if (sort.value !== loreSortValue || !featureEnabled('lorebooks')) return;
             const button = event.target.closest?.('.delete_entry_button');
@@ -439,7 +467,7 @@ export function createLorebookIntegration({
             event.preventDefault();
             event.stopImmediatePropagation();
             deleteLorebookEntryInFolderOrder(uid);
-        }, true);
+        }, listenerOptions);
 
         loreObserver = new MutationObserver(() => {
             if (sortingLore || sort.value !== loreSortValue || !featureEnabled('lorebooks')) return;
@@ -451,7 +479,7 @@ export function createLorebookIntegration({
         });
         const list = document.getElementById('world_popup_entries_list');
         if (list) loreObserver.observe(list, { childList: true });
-        $('#world_editor_select').on('change.foldy', () => {
+        $('#world_editor_select').off('change.foldy').on('change.foldy', () => {
             if (sort.value === loreSortValue) setTimeout(queueLoreRender, 0);
         });
         if (featureEnabled('lorebooks') && storedLoreSortValue() === loreSortValue) {
@@ -478,6 +506,15 @@ export function matchesLoreQuery(entry, query) {
         ...(Array.isArray(entry.keysecondary) ? entry.keysecondary : []),
     ].filter(Boolean).join('\n').toLocaleLowerCase();
     return query.toLocaleLowerCase().split(/\s+/).every(term => haystack.includes(term));
+}
+
+export function loreFolderVisibleItemIds(folder, visibleIds) {
+    return (folder?.items || []).filter(id => visibleIds.has(String(id)));
+}
+
+export function loreFolderItemIdsToRender(folder, visibleIds, { query = false, collapsed = false } = {}) {
+    if (!query && collapsed) return [];
+    return loreFolderVisibleItemIds(folder, visibleIds);
 }
 
 export function loreEntryLabel(entry) {
@@ -616,6 +653,7 @@ export function createLorebookBundleActions({
     lorebookOwnerForName,
     migrateLorebookOwner,
     persistLoreLayout,
+    enqueueLorebookWrite = async (_name, action) => action(),
     loadWorldInfo,
     saveWorldInfo,
     updateWorldInfoList,
@@ -689,22 +727,18 @@ export function createLorebookBundleActions({
         const currentIds = loreEntryIds(data);
         const entries = Object.values(data.entries).filter(entry => entry && typeof entry === 'object');
         const currentById = new Map(entries.map(entry => [String(entry.uid), entry]));
-        const commentBuckets = new Map();
-        entries.forEach(entry => {
-            const key = nameKey(entry.comment);
-            if (!key) return;
-            if (!commentBuckets.has(key)) commentBuckets.set(key, []);
-            commentBuckets.get(key).push(entry);
-        });
+        const commentIndex = uniqueNameIndex(entries, entry => entry.comment);
         const refsById = new Map((bundle.entryRefs || [])
             .filter(ref => ref?.uid != null)
             .map(ref => [String(ref.uid), ref]));
         const idMap = new Map();
+        let ambiguousNameCount = 0;
         for (const sourceId of flattenLayout(bundle.layout)) {
             const ref = refsById.get(String(sourceId));
             const direct = currentById.get(String(sourceId));
-            const commentMatches = ref?.comment ? commentBuckets.get(nameKey(ref.comment)) || [] : [];
-            const byComment = commentMatches.length === 1 ? commentMatches[0] : null;
+            const refNameKey = nameKey(ref?.comment);
+            if (!direct && refNameKey && commentIndex.ambiguous.has(refNameKey)) ambiguousNameCount++;
+            const byComment = refNameKey ? commentIndex.unique.get(refNameKey) : null;
             const target = direct || byComment;
             if (target?.uid != null) idMap.set(String(sourceId), String(target.uid));
         }
@@ -719,6 +753,7 @@ export function createLorebookBundleActions({
                 sourceCount: sourceItemCount,
                 matchedSourceCount: idMap.size,
                 matchedTargetCount,
+                ambiguousCount: ambiguousNameCount,
             })}`,
         );
         if (!confirmed) return;
@@ -787,23 +822,36 @@ export function createLorebookBundleActions({
         const currentData = exists ? await loadWorldInfo(name) : null;
         const existingEntryCount = currentData?.entries ? loreEntryIds(currentData).length : 0;
         const importedEntryCount = loreEntryIds(bundle.data).length;
+        const sourceLayoutIds = new Set(flattenLayout(bundle.layout));
+        const importedEntryIds = new Set(loreEntryIds(bundle.data).map(String));
+        const matchedLayoutCount = [...sourceLayoutIds].filter(id => importedEntryIds.has(String(id))).length;
+        const layoutSummary = importedLayoutSummary({
+            currentLabel: '가져올 항목',
+            currentOnlyLabel: '폴더 구조에 없는 가져올 항목',
+            currentCount: importedEntryCount,
+            sourceCount: sourceLayoutIds.size,
+            matchedSourceCount: matchedLayoutCount,
+            matchedTargetCount: matchedLayoutCount,
+        });
         const confirmed = await confirmText('로어북 번들 불러오기', exists
-            ? `기존 로어북 "${name}"의 항목 전체와 폴더 구조를 이 번들 내용으로 덮어씁니다.\n\n기존 항목: ${existingEntryCount}개\n가져올 항목: ${importedEntryCount}개\n\n계속하면 덮어쓰기 전 백업 파일을 자동으로 내려받습니다. 계속할까요?`
-            : `이 번들로 새 로어북 "${name}"을 만들까요?\n\n가져올 항목: ${importedEntryCount}개`);
+            ? `기존 로어북 "${name}"을 이 번들로 바꿀까요?\n\n기존 항목: ${existingEntryCount}개\n가져올 항목: ${importedEntryCount}개\n\n덮어쓰기 전에 백업 파일을 내려받습니다.\n\n${layoutSummary}\n\n계속할까요?`
+            : `이 번들로 새 로어북 "${name}"을 만들까요?\n\n가져올 항목: ${importedEntryCount}개\n\n${layoutSummary}`);
         if (!confirmed) return;
         if (exists) await backupExistingLorebook(name);
 
-        const data = cloneJson(bundle.data);
-        const layout = normalizeLayout(bundle.layout, loreEntryIds(data));
-        await saveWorldInfo(name, data, true);
-        await updateWorldInfoList();
-        const index = getWorldNames().indexOf(name);
-        const owner = lorebookOwnerForName(name);
-        migrateLorebookOwner(name, owner);
-        await persistLoreLayout(owner, layout);
-        if (index >= 0) $('#world_editor_select').val(index).trigger('change');
-        await reloadEditor(name, true);
-        if (isLoreFolderSortActive()) queueLoreRender();
+        await enqueueLorebookWrite(name, async () => {
+            const data = cloneJson(bundle.data);
+            const layout = normalizeLayout(bundle.layout, loreEntryIds(data));
+            await saveWorldInfo(name, data, true);
+            await updateWorldInfoList();
+            const index = getWorldNames().indexOf(name);
+            const owner = lorebookOwnerForName(name);
+            migrateLorebookOwner(name, owner);
+            await persistLoreLayout(owner, layout);
+            if (index >= 0) $('#world_editor_select').val(index).trigger('change');
+            await reloadEditor(name, true);
+            if (isLoreFolderSortActive()) queueLoreRender();
+        });
         toastr.success('로어북 번들을 불러왔습니다.');
     }
 

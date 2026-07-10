@@ -7,6 +7,7 @@ import {
     importedLayoutSummary,
     nameKey,
     uniqueNameMap,
+    uniqueNameIndex,
 } from './bundle-utils.js';
 import {
     flattenLayout,
@@ -65,6 +66,15 @@ export function promptLayoutOnlyBundle(bundle) {
         || (Array.isArray(bundle?.promptRefs) && !Array.isArray(bundle?.prompts) && !Array.isArray(bundle?.promptOrder));
 }
 
+export function importedPromptOrderIds(bundle, idMap) {
+    const orderedSourceIds = Array.isArray(bundle?.promptOrder) && bundle.promptOrder.length
+        ? bundle.promptOrder.map(entry => entry?.identifier)
+        : flattenLayout(bundle?.layout || { root: [], folders: [] });
+    return [...new Set(orderedSourceIds
+        .map(id => idMap.get(String(id)))
+        .filter(Boolean))];
+}
+
 export function promptDomNodesFromList(list, { preserveFolderIds = new Set() } = {}) {
     const nodes = [];
     for (const element of list.children) {
@@ -91,13 +101,13 @@ export function createPromptSortables({
     persistPromptLayout,
     shouldRejectDomLayout,
     debugLog,
-    extensionName,
 }) {
     function promptLayoutFromDom(manager, list, sourceLayout, { preserveFolderIds = new Set(), normalizeOptions = {} } = {}) {
         const nodes = promptDomNodesFromList(list, { preserveFolderIds });
         return layoutFromTree(nodes, sourceLayout, promptOrderIds(manager), {
             preserveFolderIds,
             normalizeOptions,
+            onMissingSourceFolders: ids => debugLog('프롬프트 DOM에 저장된 폴더가 없습니다.', ids),
         });
     }
 
@@ -125,7 +135,6 @@ export function createPromptSortables({
                 setCurrentPromptLayout(next);
                 sourceLayout = next;
             } catch (error) {
-                console.error(`[${extensionName}] Failed to save prompt folder order`, error);
                 debugLog('프롬프트 폴더 순서 저장 실패', error);
                 toastr.error('프롬프트 폴더 순서를 저장하지 못했습니다.');
                 manager.render(false);
@@ -154,9 +163,7 @@ export function createPromptSortables({
                     : new Set(),
             }),
             debugLog,
-            extensionName,
             domainLabel: '프롬프트',
-            errorLabel: 'prompt',
             appendPlaceholderToFolder: true,
         });
     }
@@ -208,10 +215,10 @@ export function createPromptBundleActions({
 
     async function requestPromptExportMode() {
         return requestBundleExportMode(
-            '프롬프트 내보내기',
-            '프리셋 내용과 폴더 구조',
+            '프롬프트 번들 내보내기',
+            '프롬프트 내용과 폴더 구조',
             '폴더 구조만',
-            '구조만 내보내면 불러올 때 현재 프리셋의 프롬프트 내용은 그대로 두고 폴더 배치만 적용합니다.',
+            '폴더 구조만 내보내면 불러올 때 현재 프롬프트 내용은 유지하고 폴더 배치만 적용합니다.',
             'foldy_prompt_export_mode',
         );
     }
@@ -222,23 +229,27 @@ export function createPromptBundleActions({
             return;
         }
         const currentPreset = promptExportName();
-        const sourcePreset = promptBundlePresetName(bundle) || '알 수 없는 프리셋';
+        const sourcePreset = promptBundlePresetName(bundle) || 'unknown preset';
         const currentPrompts = manager.serviceSettings.prompts || [];
         const currentIds = promptOrderIds(manager);
         const currentById = new Map(currentPrompts
             .filter(prompt => prompt?.identifier)
             .map(prompt => [String(prompt.identifier), prompt]));
-        const currentByName = uniqueNameMap(currentPrompts
+        const currentNameIndex = uniqueNameIndex(currentPrompts
             .filter(prompt => prompt?.identifier), prompt => prompt?.name);
+        const currentByName = currentNameIndex.unique;
         const refsById = new Map((bundle.promptRefs || [])
             .filter(ref => ref?.id)
             .map(ref => [String(ref.id), ref]));
         const idMap = new Map();
         const usedTargetIds = new Set();
+        let ambiguousNameCount = 0;
         for (const sourceId of flattenLayout(bundle.layout)) {
             const ref = refsById.get(String(sourceId));
             const direct = currentById.get(String(sourceId));
-            const byName = ref?.name ? currentByName.get(nameKey(ref.name)) : null;
+            const refNameKey = nameKey(ref?.name);
+            if (!direct && refNameKey && currentNameIndex.ambiguous.has(refNameKey)) ambiguousNameCount++;
+            const byName = refNameKey ? currentByName.get(refNameKey) : null;
             const target = direct || byName;
             const targetId = target?.identifier != null ? String(target.identifier) : '';
             if (targetId && !usedTargetIds.has(targetId)) {
@@ -252,11 +263,12 @@ export function createPromptBundleActions({
             '프롬프트 폴더 구조 불러오기',
             `"${sourcePreset}"의 폴더 구조를 현재 프리셋 "${currentPreset}"에 적용할까요? 프롬프트 내용은 바뀌지 않습니다.\n\n${importedLayoutSummary({
                 currentLabel: '현재 프롬프트',
-                currentOnlyLabel: '현재 프리셋에만 있는 항목',
+                currentOnlyLabel: '현재 프리셋에만 있는 프롬프트',
                 currentCount: currentIds.length,
                 sourceCount: sourceItemCount,
                 matchedSourceCount: idMap.size,
                 matchedTargetCount,
+                ambiguousCount: ambiguousNameCount,
             })}`,
         );
         if (!confirmed) return;
@@ -340,9 +352,22 @@ export function createPromptBundleActions({
         const exists = presetManager?.getAllPresets?.().includes(presetName);
         const existingPromptCount = exists ? (currentPromptPresetSettings(presetName)?.prompts || []).length : 0;
         const importedPromptCount = bundle.prompts.filter(prompt => prompt?.identifier).length;
+        const sourceLayoutIds = new Set(flattenLayout(bundle.layout));
+        const importedPromptIds = new Set(bundle.prompts
+            .filter(prompt => prompt?.identifier)
+            .map(prompt => String(prompt.identifier)));
+        const matchedLayoutCount = [...sourceLayoutIds].filter(id => importedPromptIds.has(String(id))).length;
+        const layoutSummary = importedLayoutSummary({
+            currentLabel: '가져올 프롬프트',
+            currentOnlyLabel: '폴더 구조에 없는 가져올 프롬프트',
+            currentCount: importedPromptCount,
+            sourceCount: sourceLayoutIds.size,
+            matchedSourceCount: matchedLayoutCount,
+            matchedTargetCount: matchedLayoutCount,
+        });
         const confirmed = await confirmText('프롬프트 번들 불러오기', exists
-            ? `기존 프롬프트 프리셋 "${presetName}"의 프롬프트, 순서, 파라미터 설정을 이 번들 내용으로 덮어씁니다.\n\n기존 프롬프트: ${existingPromptCount}개\n가져올 프롬프트: ${importedPromptCount}개\n\n계속하면 덮어쓰기 전 백업 파일을 자동으로 내려받습니다. 계속할까요?`
-            : `이 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?\n\n가져올 프롬프트: ${importedPromptCount}개`);
+            ? `기존 프롬프트 프리셋 "${presetName}"을 이 번들로 바꿀까요?\n\n기존 프롬프트: ${existingPromptCount}개\n가져올 프롬프트: ${importedPromptCount}개\n\n덮어쓰기 전에 백업 파일을 내려받습니다.\n\n${layoutSummary}\n\n계속할까요?`
+            : `이 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?\n\n가져올 프롬프트: ${importedPromptCount}개\n\n${layoutSummary}`);
         if (!confirmed) return;
         if (exists) backupExistingPromptPreset(presetName, manager);
 
@@ -381,7 +406,8 @@ export function createPromptBundleActions({
         // Imports may reuse existing prompts, but the Foldy layout itself comes from the bundle.
         const currentLayout = normalizeLayout(null, currentIds);
         const importedLayout = remapImportedLayout(bundle.layout, idMap);
-        const allIds = [...new Set([...currentIds, ...idMap.values()])];
+        const importedConnectedIds = importedPromptOrderIds(bundle, idMap);
+        const allIds = [...new Set([...currentIds, ...importedConnectedIds])];
         const renameTracker = createFolderRenameTracker();
         const layout = mergeImportedLayout(currentLayout, importedLayout, allIds, renameTracker.options);
         const orderById = new Map(bundle.promptOrder.map(entry => {

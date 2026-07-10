@@ -202,6 +202,16 @@
     line-height: 1;
 }
 
+.foldy-state-badge[hidden] {
+    display: none;
+}
+
+/* Hide badges left in the DOM by an older module until the list rerenders. */
+.foldy-prompt-folder .foldy-state-badge,
+.foldy-lore-folder .foldy-state-badge {
+    display: none;
+}
+
 .foldy-folder-items {
     display: flex;
     flex-direction: column;

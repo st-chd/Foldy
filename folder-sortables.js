@@ -3,6 +3,10 @@ import { updateFolderCount } from './folder-ui.js';
 export function destroyFolderSortables(list, nestedItemsSelector, { dataKey = null } = {}) {
     if (!list) return;
     const $list = $(list);
+    const cleanupKey = dataKey ? `${dataKey}Cleanup` : 'foldySortableCleanup';
+    const cleanup = $list.data(cleanupKey);
+    if (typeof cleanup === 'function') cleanup();
+    $list.removeData(cleanupKey);
     if ($list.sortable('instance')) $list.sortable('destroy');
     if (dataKey) $list.removeData(dataKey);
     list.querySelectorAll(nestedItemsSelector).forEach(element => {
@@ -28,9 +32,7 @@ export function setupFolderSortables({
     saveOptionsFromItem = null,
     moveItemToFolder = null,
     debugLog,
-    extensionName,
     domainLabel,
-    errorLabel,
     appendPlaceholderToFolder = false,
     dataKey = null,
 }) {
@@ -98,7 +100,6 @@ export function setupFolderSortables({
     const afterSort = task => {
         setTimeout(() => {
             task().catch(error => {
-                console.error(`[${extensionName}] Failed to finish ${errorLabel} folder sort`, error);
                 debugLog(`${domainLabel} 폴더 정렬 완료 처리 실패`, error);
                 toastr.error(`${domainLabel} 폴더 순서를 저장하지 못했습니다.`);
                 rerender();
@@ -147,6 +148,8 @@ export function setupFolderSortables({
         sort: rememberPointer,
         stop: (_, ui) => finishSort(ui),
     });
+    const cleanupKey = dataKey ? `${dataKey}Cleanup` : 'foldySortableCleanup';
+    $list.data(cleanupKey, clearDropState);
     if (dataKey) $list.data(dataKey, true);
 
     list.querySelectorAll(nestedItemsSelector).forEach(element => {

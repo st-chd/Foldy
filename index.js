@@ -1,4 +1,4 @@
-import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
+﻿import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
 import { extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
 import { getChatCompletionPreset, oai_settings, promptManager } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
@@ -8,11 +8,9 @@ import { getSortableDelay, waitUntilCondition } from '../../../utils.js';
 import { accountStorage } from '../../../util/AccountStorage.js';
 import { cloneJson, createBundleActions } from './bundle-utils.js';
 import {
+    bindAction,
     createLabeledIconButton,
     createIconButton,
-    closeOpenFolderMenus,
-    updateFolderCount,
-    applyFolderStyleToAll,
     folderStyleValues,
     createFolderElement as createFolderElementBase,
 } from './folder-ui.js';
@@ -21,12 +19,11 @@ import {
     createFolderDialogs,
 } from './folder-dialogs.js';
 import { createClearDataDialog, createFoldyDataCleanup } from './clear-data-dialog.js';
-import { createPromptBundleActions, createPromptSortables, promptOrderIds } from './prompt-bundles.js';
+import { createPromptIntegration } from './prompt-integration.js';
 import {
     createLorebookBundleActions,
     createLorebookIntegration,
     isLoreOriginalDataCompatible as isLoreOriginalDataCompatibleBase,
-    detectLorebookRename,
     loreEntryLabel,
     setLoreEntryPosition,
     setLoreEntryStrategy,
@@ -58,20 +55,20 @@ import {
 } from '../../regex/engine.js';
 import {
     FOLDY_VERSION,
-    addFolderWithItems,
     flattenLayout,
+    layoutWithAddedFolder,
+    layoutWithItemsMovedToFolder,
     layoutIntegrityDiff,
     layoutFromTree,
-    moveItemsToFolder,
     normalizeLayout,
     orderItemsByLayout,
-    removeFolder,
     rootItemIds,
 } from './model.js';
 import { createFoldySettingsStore } from './settings-store.js';
 
 const EXTENSION_NAME = 'Foldy';
-const LORE_SORT_VALUE = 'foldy';
+const LEGACY_LORE_SORT_VALUE = 'foldy';
+const LORE_SORT_VALUE = 'foldy-order';
 const SETTINGS_KEY = 'foldy';
 const CORRUPTED_SETTINGS_LIMIT = 12;
 
@@ -79,33 +76,32 @@ const REGEX_TYPES = {
     global: {
         scriptType: SCRIPT_TYPES.GLOBAL,
         selector: '#saved_regex_scripts',
-        label: '글로벌',
+        label: 'Global',
     },
     scoped: {
         scriptType: SCRIPT_TYPES.SCOPED,
         selector: '#saved_scoped_scripts',
-        label: '스코프',
+        label: 'Scoped',
     },
     preset: {
         scriptType: SCRIPT_TYPES.PRESET,
         selector: '#saved_preset_scripts',
-        label: '프리셋',
+        label: 'Preset',
     },
 };
 const REGEX_FOLDER_TARGETS = [
-    { key: 'global', label: '글로벌' },
-    { key: 'preset', label: '프리셋' },
-    { key: 'scoped', label: '스코프' },
+    { key: 'global', label: 'Global' },
+    { key: 'preset', label: 'Preset' },
+    { key: 'scoped', label: 'Scoped' },
 ];
 
-let currentPromptLayout = null;
-let handlingLoreAction = false;
-let lorebookNamesSnapshot = null;
 let applyLorebookFeatureState = () => {};
 let queueLoreRender = () => {};
 let installLorebookIntegration = async () => {};
 let enhanceRegexLists = () => {};
 let installRegexIntegration = async () => {};
+let runtimeEventsRegistered = false;
+const loreWriteQueues = new Map();
 const sessionDisabledFeatures = new Set();
 const foldySettingsStore = createFoldySettingsStore({
     extensionSettings: extension_settings,
@@ -126,19 +122,16 @@ async function withErrorToast(label, fn) {
     try {
         return await fn();
     } catch (error) {
-        console.error(`[${EXTENSION_NAME}] ${label}`, error);
         debugLog(label, error);
-        toastr.error(`${label} 실패`);
+        toastr.error(`${label} 작업에 실패했습니다.`);
         return undefined;
     }
 }
-
-async function installOptionalIntegration({ label, action, extensionName, debugLog }) {
+async function installOptionalIntegration({ label, action, debugLog }) {
     try {
         await action();
     } catch (error) {
-        console.error(`[${extensionName}] Failed to initialize ${label} folders`, error);
-        debugLog(`${label} folder initialization failed`, error);
+        debugLog(`${label} 폴더 초기화 실패`, error);
     }
 }
 
@@ -151,6 +144,9 @@ function registerFoldyRuntimeEvents({
     renderRegex,
     syncLorebookRenameMigration,
 }) {
+    if (runtimeEventsRegistered) return;
+    runtimeEventsRegistered = true;
+
     eventSource.on(eventTypes.PRESET_RENAMED_BEFORE, ({ apiId, oldName, newName }) => {
         const oldPromptKey = `${apiId}:${oldName}`;
         const newPromptKey = `${apiId}:${newName}`;
@@ -177,34 +173,13 @@ function createToolbarFactory({ withErrorToast }) {
         toolbar.dataset.foldyToolbar = key;
         if (onCreate) {
             const create = createLabeledIconButton('fa-folder-plus', '새 폴더', '새 폴더', 'foldy-create-folder');
-            create.addEventListener('click', event => {
-                event.preventDefault();
-                event.stopPropagation();
-                withErrorToast('새 폴더', onCreate);
-            });
+            bindAction(create, '새 폴더', onCreate, { withErrorToast });
             toolbar.append(create);
         }
         toolbar.append(...extra);
         parent.prepend(toolbar);
         return toolbar;
     };
-}
-
-function setPromptToolbarSummary(toolbar, layout, visibleItemIds = null) {
-    if (!toolbar || !layout) return;
-    const summary = document.createElement('span');
-    summary.className = 'foldy-toolbar-summary';
-    const folderCount = layout.folders?.length || 0;
-    const unfiledCount = rootItemIds(layout).filter(id => !visibleItemIds || visibleItemIds.has(String(id))).length;
-    summary.textContent = '폴더 ' + folderCount + ' / 미분류 ' + unfiledCount;
-    summary.title = '폴더: ' + folderCount + ', 미분류 항목: ' + unfiledCount;
-    toolbar.prepend(summary);
-}
-
-function placePromptToolbar(toolbar, rangeBlock) {
-    if (!toolbar || !rangeBlock) return;
-    const list = rangeBlock.querySelector('#completion_prompt_manager_list');
-    if (list) rangeBlock.insertBefore(toolbar, list);
 }
 
 function createSettingsRenderer({
@@ -255,84 +230,23 @@ function createSettingsRenderer({
             saveSettingsDebounced();
             rerender();
         });
-        $('#foldy_clear_prompts').on('click', () => withErrorToast('프롬프트 폴더 데이터 삭제', async () => {
+        $('#foldy_clear_prompts').on('click', () => withErrorToast('Clear prompt folder data', async () => {
             await requestClearFoldyData('prompts', '프롬프트');
             rerender();
         }));
-        $('#foldy_clear_lorebooks').on('click', () => withErrorToast('로어북 폴더 데이터 삭제', async () => {
+        $('#foldy_clear_lorebooks').on('click', () => withErrorToast('Clear lorebook folder data', async () => {
             await requestClearFoldyData('lorebooks', '로어북');
             rerender();
         }));
-        $('#foldy_clear_regex').on('click', () => withErrorToast('정규식 폴더 데이터 삭제', async () => {
-            await requestClearFoldyData('regex', '정규식');
+        $('#foldy_clear_regex').on('click', () => withErrorToast('Clear regex folder data', async () => {
+            await requestClearFoldyData('regex', 'Regex');
             rerender();
         }));
-        $('#foldy_clear_all').on('click', () => withErrorToast('전체 폴더 데이터 삭제', async () => {
-            await requestClearFoldyData('all', '전체');
+        $('#foldy_clear_all').on('click', () => withErrorToast('Clear all folder data', async () => {
+            await requestClearFoldyData('all', 'All');
             rerender();
         }));
         sync();
-    };
-}
-
-function createPromptInstaller({
-    waitUntilCondition,
-    promptManager,
-    promptPresetManager,
-    settings,
-    featureEnabled,
-    saveSettingsDebounced,
-    debugLog,
-    extensionName,
-    enhancePromptList,
-    setupPromptSortables,
-}) {
-    let originalRenderItems = null;
-    let originalMakeDraggable = null;
-
-    return async function installPromptIntegration() {
-        await waitUntilCondition(() => promptManager && promptPresetManager(), 30000, 100);
-        const manager = promptManager;
-        if (typeof manager.renderPromptManagerListItems !== 'function' || typeof manager.makeDraggable !== 'function') {
-            settings().features.prompts = false;
-            saveSettingsDebounced();
-            debugLog('Prompt folder initialization API is missing', {
-                renderPromptManagerListItems: typeof manager.renderPromptManagerListItems,
-                makeDraggable: typeof manager.makeDraggable,
-            });
-            toastr.error('현재 SillyTavern 버전과 호환되지 않아 프롬프트 폴더를 비활성화했습니다.');
-            return;
-        }
-        if (!originalRenderItems) originalRenderItems = manager.renderPromptManagerListItems.bind(manager);
-        if (!originalMakeDraggable) originalMakeDraggable = manager.makeDraggable.bind(manager);
-        if (manager.__foldyInstalled) return;
-        manager.__foldyInstalled = true;
-
-        manager.renderPromptManagerListItems = async function (...args) {
-            await originalRenderItems.apply(this, args);
-            if (!featureEnabled('prompts')) return;
-            try {
-                await enhancePromptList(manager);
-            } catch (error) {
-                console.error(`[${extensionName}] Failed to enhance prompt folders`, error);
-                debugLog('Prompt folder rendering failed', error);
-                toastr.error('프롬프트 폴더를 표시하지 못해 원래 프롬프트 목록으로 되돌렸습니다.');
-                await originalRenderItems.apply(this, args);
-            }
-        };
-        manager.makeDraggable = function (...args) {
-            const result = originalMakeDraggable.apply(this, args);
-            if (featureEnabled('prompts')) {
-                try {
-                    setupPromptSortables(manager);
-                } catch (error) {
-                    console.error(`[${extensionName}] Failed to initialize prompt folder sorting`, error);
-                    debugLog('Prompt folder sorting initialization failed', error);
-                }
-            }
-            return result;
-        };
-        manager.render(false);
     };
 }
 
@@ -348,8 +262,8 @@ function disableFeatureForCompatibility(name, label, detail) {
         regex: '#foldy_enable_regex',
     };
     $(checkboxIds[name] || []).prop('checked', false);
-    debugLog(label + ' compatibility check failed', detail);
-    toastr.error(`현재 SillyTavern UI와 호환되지 않아 ${label} 폴더를 비활성화했습니다.`);
+    debugLog(`${label} 호환성 확인 실패`, detail);
+    toastr.error(`현재 SillyTavern UI와 호환되지 않아 Foldy가 ${label} 폴더를 비활성화했습니다.`);
 }
 
 function ownerCollapsed(kind, owner) {
@@ -373,18 +287,44 @@ function promptPresetManager() {
     return getPresetManager('openai');
 }
 
+function foldyOwnerKey(prefix, ...segments) {
+    return JSON.stringify([prefix, ...segments].map(value => String(value ?? '')));
+}
+
+function legacyFoldyOwnerKey(prefix, ...segments) {
+    return [prefix, ...segments].map(value => String(value ?? '')).join(':');
+}
+
+function migrateFoldyOwnerKey(layouts, collapsed, prefix, ...segments) {
+    const owner = foldyOwnerKey(prefix, ...segments);
+    const legacyOwner = legacyFoldyOwnerKey(prefix, ...segments);
+    if (owner === legacyOwner) return owner;
+
+    let changed = false;
+    if (Object.hasOwn(layouts, legacyOwner) && !Object.hasOwn(layouts, owner)) {
+        layouts[owner] = layouts[legacyOwner];
+        delete layouts[legacyOwner];
+        changed = true;
+    }
+    if (Object.hasOwn(collapsed, legacyOwner) && !Object.hasOwn(collapsed, owner)) {
+        collapsed[owner] = collapsed[legacyOwner];
+        delete collapsed[legacyOwner];
+        changed = true;
+    }
+    if (changed) saveSettingsDebounced();
+    return owner;
+}
+
 function promptOwnerKey() {
     const manager = promptPresetManager();
-    // Prefix is load-bearing: owner keys must not be raw user names, both to
-    // avoid cross-domain collisions and prototype-shaped object keys.
-    return `${manager?.apiId || 'openai'}:${manager?.getSelectedPresetName() || ''}`;
+    const state = settings();
+    return migrateFoldyOwnerKey(state.layouts.prompts, state.collapsed.prompt, manager?.apiId || 'openai', manager?.getSelectedPresetName() || '');
 }
 
 function promptOwnerKeyForName(name) {
     const manager = promptPresetManager();
-    // Prefix is load-bearing: owner keys must not be raw user names, both to
-    // avoid cross-domain collisions and prototype-shaped object keys.
-    return `${manager?.apiId || 'openai'}:${name || ''}`;
+    const state = settings();
+    return migrateFoldyOwnerKey(state.layouts.prompts, state.collapsed.prompt, manager?.apiId || 'openai', name || '');
 }
 
 function promptExportName() {
@@ -410,14 +350,13 @@ function selectedLorebookOwner() {
     const selected = $('#world_editor_select').find(':selected');
     const value = String(selected.val() ?? '');
     const name = /^\d+$/.test(value) ? world_names?.[Number(value)] || '' : '';
-    const owner = `name:${name}`;
+    const owner = lorebookOwnerForName(name);
     return { name, owner };
 }
 
 function lorebookOwnerForName(name) {
-    // Prefix is load-bearing: owner keys must not be raw user names, both to
-    // avoid cross-domain collisions and prototype-shaped object keys.
-    return `name:${name}`;
+    const state = settings();
+    return migrateFoldyOwnerKey(state.layouts.lorebooks, state.collapsed.lore, 'name', name);
 }
 
 function currentLorebookNames() {
@@ -456,20 +395,10 @@ function currentLorebookOwner() {
     return value;
 }
 
-function syncLorebookRenameMigration({ rerender = true } = {}) {
-    const previous = lorebookNamesSnapshot;
-    const next = currentLorebookNames();
-    lorebookNamesSnapshot = next;
-
-    const rename = detectLorebookRename(previous, next);
-    if (!rename) return;
-
-    const oldOwner = lorebookOwnerForName(rename.oldName);
-    const newOwner = lorebookOwnerForName(rename.newName);
-    if (migrateLorebookOwnerKey(oldOwner, newOwner, { overwrite: true })) {
-        saveSettingsDebounced();
-        if (rerender) queueLoreRender();
-    }
+function syncLorebookRenameMigration() {
+    // WORLDINFO_SETTINGS_UPDATED provides names only. A one-name removal and
+    // addition is indistinguishable from deleting one lorebook and creating
+    // another, so never transfer persisted layout data on that heuristic.
 }
 
 const foldyDataCleanup = createFoldyDataCleanup({
@@ -506,7 +435,6 @@ const {
     Popup,
     POPUP_RESULT,
     POPUP_TYPE,
-    extensionName: EXTENSION_NAME,
     debugLog,
     withErrorToast,
     ownerCollapsed,
@@ -515,22 +443,25 @@ const {
 });
 
 function storedLoreSortValue() {
-    return accountStorage.getItem(SORT_ORDER_KEY);
+    const value = accountStorage.getItem(SORT_ORDER_KEY);
+    if (value === LEGACY_LORE_SORT_VALUE) {
+        accountStorage.setItem(SORT_ORDER_KEY, LORE_SORT_VALUE);
+        return LORE_SORT_VALUE;
+    }
+    return value;
 }
 
 function regexOwnerKey(typeKey) {
     if (typeKey === 'global') return 'global';
     if (typeKey === 'scoped') {
         const avatar = characters?.[this_chid]?.avatar;
-        // Prefix is load-bearing: owner keys must not be raw user names, both to
-        // avoid cross-domain collisions and prototype-shaped object keys.
-        return avatar ? `scoped:${avatar}` : 'scoped:none';
+        const state = settings();
+        return migrateFoldyOwnerKey(state.layouts.regex.scoped, state.collapsed.regex, 'scoped', avatar || 'none');
     }
     const apiId = getCurrentPresetAPI?.() || 'openai';
     const manager = getPresetManager(apiId);
-    // Prefix is load-bearing: owner keys must not be raw user names, both to
-    // avoid cross-domain collisions and prototype-shaped object keys.
-    return `preset:${manager?.apiId || apiId}:${manager?.getSelectedPresetName() || getCurrentPresetName?.() || ''}`;
+    const state = settings();
+    return migrateFoldyOwnerKey(state.layouts.regex.preset, state.collapsed.regex, 'preset', manager?.apiId || apiId, manager?.getSelectedPresetName() || getCurrentPresetName?.() || '');
 }
 
 function regexExportName(typeKey) {
@@ -582,7 +513,7 @@ const renderSettings = createSettingsRenderer({
     applyLorebookFeatureState: () => applyLorebookFeatureState(),
 });
 
-function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, extraButtons = [] }) {
+function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, onCollapseChange = null, extraButtons = [] }) {
     return createFolderElementBase(folder, {
         kind,
         owner,
@@ -592,6 +523,7 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
         onStateToggle,
         state,
         onBulkMove,
+        onCollapseChange,
         extraButtons,
         ownerCollapsed,
         saveCollapsed,
@@ -620,11 +552,11 @@ function collapseNewFolder(kind, owner, folderId) {
 function shouldRejectDomLayout(previousLayout, nextLayout, label) {
     const diff = layoutIntegrityDiff(previousLayout, nextLayout);
     if (!diff.ok) {
-        debugLog(label + ' DOM layout save was rejected', {
-            reason: 'The layout read from the DOM lost existing folders or items.',
+        debugLog(`${label} DOM 폴더 순서 저장 거부`, {
+            reason: 'DOM에서 읽은 폴더 구조에 기존 폴더나 항목이 빠져 있습니다.',
             ...diff,
         });
-        toastr.warning('목록이 아직 갱신 중이라 폴더 순서 저장을 건너뛰었습니다. 잠시 후 다시 시도해 주세요.');
+        toastr.warning('목록이 아직 갱신 중이라 Foldy가 폴더 순서 저장을 건너뛰었습니다. 잠시 후 다시 시도해 주세요.');
         return true;
     }
     return false;
@@ -647,18 +579,10 @@ function createLoreCollapseButtons() {
         saveCollapsed('lore', owner, collapsed);
         queueLoreRender();
     };
-    const expandAll = createIconButton('fa-folder-open', '전체 펼치기', 'foldy-lore-expand-all');
-    const collapseAll = createIconButton('fa-folder', '전체 접기', 'foldy-lore-collapse-all');
-    collapseAll.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        withErrorToast('전체 접기', () => setAll(true));
-    });
-    expandAll.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        withErrorToast('전체 펼치기', () => setAll(false));
-    });
+    const expandAll = createIconButton('fa-folder-open', '모두 펼치기', 'foldy-lore-expand-all');
+    const collapseAll = createIconButton('fa-folder', '모두 접기', 'foldy-lore-collapse-all');
+    bindAction(collapseAll, '모두 접기', () => setAll(true), { withErrorToast });
+    bindAction(expandAll, '모두 펼치기', () => setAll(false), { withErrorToast });
     return [expandAll, collapseAll];
 }
 
@@ -674,233 +598,51 @@ function createLoreRootBulkMoveButton() {
         const labels = new Map(entries.map(entry => [String(entry.uid), loreEntryLabel(entry)]));
         const values = await requestFlexibleBulkMove(layout, null, labels);
         if (!values) return;
-        if (!moveItemsToFolder(layout, values.itemIds, values.targetFolderId)) return;
-        await persistLoreLayout(owner, layout);
+        const result = layoutWithItemsMovedToFolder(layout, values.itemIds, values.targetFolderId);
+        if (!result.changed) return;
+        await persistLoreLayout(owner, result.layout);
         queueLoreRender();
     });
     button.id = 'foldy_lore_root_bulk_move';
     return button;
 }
 
-function readPromptLayout(manager = promptManager, normalizeOptions = {}) {
-    const owner = promptOwnerKey();
-    const raw = settings().layouts.prompts[owner];
-    return { owner, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
-}
-
-async function persistPromptLayout(owner, layout, manager = promptManager) {
-    const order = manager.getPromptOrderForCharacter(manager.activeCharacter);
-    const byId = new Map(order.map(entry => [String(entry.identifier), entry]));
-    const flattened = flattenLayout(layout);
-    order.splice(0, order.length, ...flattened.map(identifier => byId.get(identifier)).filter(Boolean));
-    settings().layouts.prompts[owner] = layout;
-    currentPromptLayout = layout;
-    saveSettingsDebounced();
-    await manager.saveServiceSettings();
-}
-
 const {
-    exportPromptBundle,
-    importPromptBundle,
-} = createPromptBundleActions({
+    installPromptIntegration,
+    renderPrompts,
+} = createPromptIntegration({
     settings,
     saveSettingsDebounced,
     waitUntilCondition,
+    getSortableDelay,
+    promptManager,
+    promptPresetManager,
     promptOwnerKey,
     promptOwnerKeyForName,
     promptExportName,
-    promptPresetManager,
     currentPromptPresetSettings,
-    readPromptLayout,
-    persistPromptLayout,
-    getCurrentPromptLayout: () => currentPromptLayout,
-    setCurrentPromptLayout: layout => { currentPromptLayout = layout; },
+    featureEnabled,
+    debugLog,
     requestBundleExportMode,
     downloadJson,
     readJsonFile,
     assertBundle,
     assertPromptBundleShape,
     confirmText,
-});
-
-const { setupPromptSortables } = createPromptSortables({
-    getSortableDelay,
-    promptOwnerKey,
-    getCurrentPromptLayout: () => currentPromptLayout,
-    setCurrentPromptLayout: layout => { currentPromptLayout = layout; },
-    persistPromptLayout,
     shouldRejectDomLayout,
-    debugLog,
-    extensionName: EXTENSION_NAME,
+    ownerCollapsed,
+    collapseNewFolder,
+    ensureToolbar,
+    createRootBulkMoveButton,
+    createCollapseButtons,
+    createBundleButtons,
+    requestFolderSettings,
+    confirmFolderDelete,
+    requestFlexibleBulkMove,
+    requestNewFolder,
+    attachMoveToFolderButton,
+    createFolderElement,
 });
-
-async function enhancePromptList(manager) {
-    const list = manager.listElement;
-    if (!list || !featureEnabled('prompts')) return;
-    const { owner, layout } = readPromptLayout(manager);
-    currentPromptLayout = layout;
-    list.classList.add('foldy-prompt-root');
-
-    closeOpenFolderMenus(list);
-    const itemMap = new Map([...list.querySelectorAll('[data-pm-identifier]')].map(element => [element.dataset.pmIdentifier, element]));
-    const visiblePromptIds = new Set(itemMap.keys());
-    itemMap.forEach(element => element.remove());
-    const collapsed = ownerCollapsed('prompt', owner);
-    const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
-
-    const rerender = () => manager.render(false);
-    const promptContextChanged = activeLayout => activeLayout !== currentPromptLayout || promptOwnerKey() !== owner;
-    const rerenderIfPromptContextChanged = activeLayout => {
-        if (!promptContextChanged(activeLayout)) return false;
-        rerender();
-        return true;
-    };
-    const onEdit = async id => {
-        const activeLayout = currentPromptLayout;
-        const folder = activeLayout.folders.find(value => value.id === id);
-        if (!folder) return;
-        const values = await requestFolderSettings(activeLayout, folder);
-        if (!values) return;
-        if (rerenderIfPromptContextChanged(activeLayout)) return;
-        if (values.applyStyleToAll) applyFolderStyleToAll(activeLayout, folder.id, values);
-        delete values.applyStyleToAll;
-        Object.assign(folder, values);
-        await persistPromptLayout(owner, activeLayout, manager);
-        rerender();
-    };
-    const onDelete = async id => {
-        const activeLayout = currentPromptLayout;
-        const folder = activeLayout.folders.find(value => value.id === id);
-        if (!folder || !await confirmFolderDelete(folder.name, '프롬프트 항목은')) return;
-        if (rerenderIfPromptContextChanged(activeLayout)) return;
-        const removedLayout = removeFolder(activeLayout, id);
-        const nextLayout = normalizeLayout(removedLayout, promptOrderIds(manager), { preserveUnrootedFolders: false });
-        await persistPromptLayout(owner, nextLayout, manager);
-        rerender();
-    };
-
-    for (const node of layout.root) {
-        if (node.type === 'item') {
-            const item = itemMap.get(node.id);
-            if (item) {
-                attachMoveToFolderButton(item, {
-                    kind: 'prompt',
-                    layout: currentPromptLayout,
-                    itemId: node.id,
-                    onMove: async movedLayout => {
-                        if (promptOwnerKey() !== owner) {
-                            rerender();
-                            return;
-                        }
-                        currentPromptLayout = movedLayout;
-                        await persistPromptLayout(owner, movedLayout, manager);
-                        rerender();
-                    },
-                });
-                list.append(item);
-            }
-            continue;
-        }
-        const folder = folderMap.get(node.id);
-        if (!folder) continue;
-        const folderElement = createFolderElement(folder, {
-            kind: 'prompt',
-            owner,
-            collapsed,
-            onEdit,
-            onDelete,
-            onBulkMove: async id => {
-                const activeLayout = currentPromptLayout;
-                const labels = new Map([...itemMap.entries()].map(([itemId, element]) => [
-                    String(itemId),
-                    element.querySelector('.completion_prompt_manager_prompt_name')?.textContent?.trim() || String(itemId),
-                ]));
-                const values = await requestFlexibleBulkMove(activeLayout, id, labels);
-                if (!values) return;
-                if (rerenderIfPromptContextChanged(activeLayout)) return;
-                if (!moveItemsToFolder(activeLayout, values.itemIds, values.targetFolderId)) return;
-                await persistPromptLayout(owner, activeLayout, manager);
-                rerender();
-            },
-        });
-        const items = folderElement.querySelector('.foldy-folder-items');
-        folder.items.forEach(id => {
-            const item = itemMap.get(id);
-            if (item) {
-                attachMoveToFolderButton(item, {
-                    kind: 'prompt',
-                    layout: currentPromptLayout,
-                    itemId: id,
-                    onMove: async movedLayout => {
-                        if (promptOwnerKey() !== owner) {
-                            rerender();
-                            return;
-                        }
-                        currentPromptLayout = movedLayout;
-                        await persistPromptLayout(owner, movedLayout, manager);
-                        rerender();
-                    },
-                });
-                items.append(item);
-            }
-        });
-        updateFolderCount(folderElement);
-        list.append(folderElement);
-    }
-
-    const rangeBlock = list.closest('.range-block');
-    const toolbar = ensureToolbar(rangeBlock, 'prompt', async () => {
-        const activeLayout = currentPromptLayout;
-        const promptsById = new Map((manager.serviceSettings.prompts || [])
-            .filter(prompt => prompt?.identifier)
-            .map(prompt => [String(prompt.identifier), prompt]));
-        const candidates = rootItemIds(activeLayout)
-            .filter(id => visiblePromptIds.has(String(id)))
-            .map(id => ({
-                id,
-                label: promptsById.get(id)?.name || id,
-            }));
-        const values = await requestNewFolder(activeLayout, candidates);
-        if (!values) return;
-        if (rerenderIfPromptContextChanged(activeLayout)) return;
-        const folder = addFolderWithItems(activeLayout, values.name, values.itemIds);
-        collapseNewFolder('prompt', owner, folder.id);
-        await persistPromptLayout(owner, activeLayout, manager);
-        rerender();
-    }, [
-        createRootBulkMoveButton(async () => {
-            const activeLayout = currentPromptLayout;
-            const labels = new Map([...itemMap.entries()].map(([itemId, element]) => [
-                String(itemId),
-                element.querySelector('.completion_prompt_manager_prompt_name')?.textContent?.trim() || String(itemId),
-            ]));
-            const values = await requestFlexibleBulkMove(activeLayout, null, labels);
-            if (!values) return;
-            if (rerenderIfPromptContextChanged(activeLayout)) return;
-            if (!moveItemsToFolder(activeLayout, values.itemIds, values.targetFolderId)) return;
-            await persistPromptLayout(owner, activeLayout, manager);
-            rerender();
-        }),
-        ...createCollapseButtons('prompt', owner, () => currentPromptLayout, async () => rerender()),
-        ...createBundleButtons(() => exportPromptBundle(manager), () => importPromptBundle(manager)),
-    ]);
-    setPromptToolbarSummary(toolbar, currentPromptLayout, visiblePromptIds);
-    placePromptToolbar(toolbar, rangeBlock);
-}
-
-const installPromptIntegration = createPromptInstaller({
-    waitUntilCondition,
-    promptManager,
-    promptPresetManager,
-    settings,
-    featureEnabled,
-    saveSettingsDebounced,
-    debugLog,
-    extensionName: EXTENSION_NAME,
-    enhancePromptList,
-    setupPromptSortables,
-});
-
 function loreLayoutFromDom(list, sourceLayout, allIds) {
     const nodes = [];
     for (const element of list.children) {
@@ -914,12 +656,25 @@ function loreLayoutFromDom(list, sourceLayout, allIds) {
             nodes.push({ type: 'item', id: element.getAttribute('uid') });
         }
     }
-    return layoutFromTree(nodes, sourceLayout, allIds);
+    return layoutFromTree(nodes, sourceLayout, allIds, {
+        onMissingSourceFolders: ids => debugLog('로어북 DOM에 저장된 폴더가 없습니다.', ids),
+    });
 }
 
 async function persistLoreLayout(owner, layout) {
     settings().layouts.lorebooks[owner] = layout;
     saveSettingsDebounced();
+}
+
+async function enqueueLorebookWrite(name, action) {
+    const key = String(name || '');
+    const previous = loreWriteQueues.get(key) || Promise.resolve();
+    const queued = previous.catch(() => {}).then(action);
+    loreWriteQueues.set(key, queued);
+    queued.finally(() => {
+        if (loreWriteQueues.get(key) === queued) loreWriteQueues.delete(key);
+    }).catch(() => {});
+    return queued;
 }
 
 async function createLorebookFolder() {
@@ -946,9 +701,9 @@ async function createLorebookFolder() {
     const values = await requestNewFolder(layout, candidates);
     if (!values) return;
 
-    const folder = addFolderWithItems(layout, values.name, values.itemIds);
-    collapseNewFolder('lore', owner, folder.id);
-    await persistLoreLayout(owner, layout);
+    const result = layoutWithAddedFolder(layout, values.name, values.itemIds);
+    collapseNewFolder('lore', owner, result.folder.id);
+    await persistLoreLayout(owner, result.layout);
 
     const sort = document.getElementById('world_info_sort_order');
     if (sort && sort.value !== LORE_SORT_VALUE) {
@@ -973,6 +728,7 @@ const {
     lorebookOwnerForName,
     migrateLorebookOwner,
     persistLoreLayout,
+    enqueueLorebookWrite,
     loadWorldInfo,
     saveWorldInfo,
     updateWorldInfoList,
@@ -989,12 +745,10 @@ const {
 });
 
 async function createLorebookEntryInFolderOrder() {
-    if (handlingLoreAction) return;
     if (!featureEnabled('lorebooks')) return;
-    handlingLoreAction = true;
-    try {
-        const { name, owner } = currentLorebookOwner();
-        if (!name) return;
+    const { name, owner } = currentLorebookOwner();
+    if (!name) return;
+    await enqueueLorebookWrite(name, async () => {
         const data = await loadWorldInfo(name);
         if (!data?.entries) return;
         if (!isLoreOriginalDataCompatible(data)) return;
@@ -1017,18 +771,14 @@ async function createLorebookEntryInFolderOrder() {
         await persistLoreLayout(owner, layout);
         await saveWorldInfo(name, data, true);
         queueLoreRender();
-    } finally {
-        handlingLoreAction = false;
-    }
+    });
 }
 
 async function deleteLorebookEntryInFolderOrder(uid) {
-    if (handlingLoreAction) return;
     if (!featureEnabled('lorebooks')) return;
-    handlingLoreAction = true;
-    try {
-        const { name, owner } = currentLorebookOwner();
-        if (!name) return;
+    const { name, owner } = currentLorebookOwner();
+    if (!name) return;
+    await enqueueLorebookWrite(name, async () => {
         const data = await loadWorldInfo(name);
         if (!data?.entries) return;
         if (!isLoreOriginalDataCompatible(data)) return;
@@ -1050,16 +800,23 @@ async function deleteLorebookEntryInFolderOrder(uid) {
         await persistLoreLayout(owner, layout);
         await saveWorldInfo(name, data, true);
         queueLoreRender();
-    } finally {
-        handlingLoreAction = false;
-    }
+    });
 }
 
 async function setLoreFolderEnabled(name, data, layout, folderId, enabled) {
-    if (!isLoreOriginalDataCompatible(data)) return;
-    if (!setLoreFolderEntriesEnabled(data, layout, folderId, enabled, setWIOriginalDataValue)) return;
-    await saveWorldInfo(name, data, true);
-    queueLoreRender();
+    await enqueueLorebookWrite(name, async () => {
+        const freshData = await loadWorldInfo(name);
+        if (!freshData?.entries) return;
+        if (!isLoreOriginalDataCompatible(freshData)) return;
+        const owner = lorebookOwnerForName(name);
+        const allIds = Object.values(freshData.entries)
+            .filter(entry => entry && typeof entry === 'object')
+            .map(entry => String(entry.uid));
+        const freshLayout = normalizeLayout(settings().layouts.lorebooks[owner], allIds);
+        if (!setLoreFolderEntriesEnabled(freshData, freshLayout, folderId, enabled, setWIOriginalDataValue)) return;
+        await saveWorldInfo(name, freshData, true);
+        queueLoreRender();
+    });
 }
 
 async function requestLoreFolderStrategy(folder) {
@@ -1074,9 +831,9 @@ async function requestLoreFolderStrategy(folder) {
     const select = document.createElement('select');
     select.className = 'text_pole';
     [
-        ['normal', '🟢키워드 활성화'],
-        ['constant', '🔵상시 활성화'],
-        ['vectorized', '🔗벡터화'],
+        ['normal', 'Normal enabled'],
+        ['constant', 'Constant enabled'],
+        ['vectorized', 'Vectorized'],
     ].forEach(([value, labelText]) => {
         const option = document.createElement('option');
         option.value = value;
@@ -1104,16 +861,16 @@ async function requestLoreFolderPosition(folder) {
     const select = document.createElement('select');
     select.className = 'text_pole';
     [
-        ['0:', '캐릭터 정의 전'],
-        ['1:', '캐릭터 정의 후'],
-        ['5:', '↑ EM'],
-        ['6:', '↓ EM'],
-        ['2:', '작가 노트 전'],
-        ['3:', '작가 노트 후'],
-        ['4:0', '@D ⚙️'],
-        ['4:1', '@D 👤'],
-        ['4:2', '@D 🤖'],
-        ['7:', '➡️ Outlet'],
+        ['0:', 'Before character definition'],
+        ['1:', 'After character definition'],
+        ['5:', 'Before examples'],
+        ['6:', 'After examples'],
+        ['2:', 'Before author note'],
+        ['3:', 'After author note'],
+        ['4:0', '@D depth'],
+        ['4:1', '@D role'],
+        ['4:2', '@D scan'],
+        ['7:', 'Before outlet'],
     ].forEach(([value, labelText]) => {
         const option = document.createElement('option');
         option.value = value;
@@ -1135,40 +892,53 @@ async function requestLoreFolderPosition(folder) {
 }
 
 function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = () => false) {
-    const strategy = createIconButton('fa-layer-group', '폴더 항목 전략 일괄 설정', 'foldy-lore-bulk-setting');
-    strategy.addEventListener('click', async event => {
-        event.preventDefault();
-        event.stopPropagation();
-        await withErrorToast('폴더 항목 전략 일괄 설정', async () => {
-            const value = await requestLoreFolderStrategy(folder);
-            if (!value) return;
-            if (shouldAbort()) return;
-            if (!isLoreOriginalDataCompatible(data)) return;
-            for (const id of folder.items) setLoreEntryStrategy(data, data.entries[id], value, setWIOriginalDataValue);
-            await saveWorldInfo(name, data, true);
+    const strategy = createIconButton('fa-layer-group', 'Set folder item strategy', 'foldy-lore-bulk-setting');
+    bindAction(strategy, 'Set folder item strategy', async () => {
+        const value = await requestLoreFolderStrategy(folder);
+        if (!value) return;
+        if (shouldAbort()) return;
+        await enqueueLorebookWrite(name, async () => {
+            const freshData = await loadWorldInfo(name);
+            if (!freshData?.entries) return;
+            if (!isLoreOriginalDataCompatible(freshData)) return;
+            const owner = lorebookOwnerForName(name);
+            const allIds = Object.values(freshData.entries)
+                .filter(entry => entry && typeof entry === 'object')
+                .map(entry => String(entry.uid));
+            const freshLayout = normalizeLayout(settings().layouts.lorebooks[owner], allIds);
+            const freshFolder = freshLayout.folders.find(value => value.id === folder.id);
+            if (!freshFolder) return;
+            for (const id of freshFolder.items) setLoreEntryStrategy(freshData, freshData.entries[id], value, setWIOriginalDataValue);
+            await saveWorldInfo(name, freshData, true);
             queueLoreRender();
         });
-    });
+    }, { withErrorToast });
 
-    const position = createIconButton('fa-location-dot', '폴더 항목 위치 일괄 설정', 'foldy-lore-bulk-setting');
-    position.addEventListener('click', async event => {
-        event.preventDefault();
-        event.stopPropagation();
-        await withErrorToast('폴더 항목 위치 일괄 설정', async () => {
-            const value = await requestLoreFolderPosition(folder);
-            if (!value) return;
-            if (shouldAbort()) return;
-            if (!isLoreOriginalDataCompatible(data)) return;
-            for (const id of folder.items) setLoreEntryPosition(data, data.entries[id], value.position, value.role, setWIOriginalDataValue);
-            await saveWorldInfo(name, data, true);
+    const position = createIconButton('fa-location-dot', 'Set folder item position', 'foldy-lore-bulk-setting');
+    bindAction(position, 'Set folder item position', async () => {
+        const value = await requestLoreFolderPosition(folder);
+        if (!value) return;
+        if (shouldAbort()) return;
+        await enqueueLorebookWrite(name, async () => {
+            const freshData = await loadWorldInfo(name);
+            if (!freshData?.entries) return;
+            if (!isLoreOriginalDataCompatible(freshData)) return;
+            const owner = lorebookOwnerForName(name);
+            const allIds = Object.values(freshData.entries)
+                .filter(entry => entry && typeof entry === 'object')
+                .map(entry => String(entry.uid));
+            const freshLayout = normalizeLayout(settings().layouts.lorebooks[owner], allIds);
+            const freshFolder = freshLayout.folders.find(value => value.id === folder.id);
+            if (!freshFolder) return;
+            for (const id of freshFolder.items) setLoreEntryPosition(freshData, freshData.entries[id], value.position, value.role, setWIOriginalDataValue);
+            await saveWorldInfo(name, freshData, true);
             queueLoreRender();
         });
-    });
+    }, { withErrorToast });
     return [strategy, position];
 }
 
 ({ applyLorebookFeatureState, installLorebookIntegration, queueLoreRender } = createLorebookIntegration({
-    extensionName: EXTENSION_NAME,
     loreSortValue: LORE_SORT_VALUE,
     sortOrderKey: SORT_ORDER_KEY,
     featureEnabled,
@@ -1186,6 +956,7 @@ function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = 
     accountStorage,
     renderTemplateAsync,
     waitUntilCondition,
+    bindAction,
     createIconButton,
     createFolderElement,
     createBundleButtons,
@@ -1256,7 +1027,6 @@ const {
 });
 
 ({ enhanceRegexLists, installRegexIntegration } = createRegexIntegration({
-    extensionName: EXTENSION_NAME,
     regexTypes: REGEX_TYPES,
     scriptTypes: SCRIPT_TYPES,
     featureEnabled,
@@ -1297,11 +1067,10 @@ const {
 
 export async function init() {
     settings();
-    lorebookNamesSnapshot = currentLorebookNames();
     await renderSettings();
     await Promise.all([
-        installOptionalIntegration({ label: 'lorebook', action: installLorebookIntegration, extensionName: EXTENSION_NAME, debugLog }),
-        installOptionalIntegration({ label: 'regex', action: installRegexIntegration, extensionName: EXTENSION_NAME, debugLog }),
+        installOptionalIntegration({ label: 'lorebook', action: installLorebookIntegration, debugLog }),
+        installOptionalIntegration({ label: 'regex', action: installRegexIntegration, debugLog }),
     ]);
     registerFoldyRuntimeEvents({
         eventSource,
@@ -1315,7 +1084,6 @@ export async function init() {
     try {
         await installPromptIntegration();
     } catch (error) {
-        console.error(`[${EXTENSION_NAME}] Failed to initialize prompt folders`, error);
-        debugLog('Prompt folder initialization failed', error);
+        debugLog('프롬프트 폴더 초기화 실패', error);
     }
 }

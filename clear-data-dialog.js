@@ -1,17 +1,17 @@
-import { appendSelectionRow, createSelectionToolbar } from './folder-ui.js';
+﻿import { appendSelectionRow, createSelectionToolbar } from './folder-ui.js';
 
 function createUnusedDataPreview(items) {
     const preview = document.createElement('div');
     preview.className = 'foldy-clear-unused-preview';
     const title = document.createElement('div');
     title.className = 'foldy-clear-unused-title';
-    title.textContent = `미사용 폴더 ${items.length}개`;
+    title.textContent = `미사용 폴더 데이터: ${items.length}개`;
     preview.append(title);
 
     if (!items.length) {
         const empty = document.createElement('div');
         empty.className = 'foldy-empty-hint';
-        empty.textContent = '삭제할 미사용 폴더가 없습니다.';
+        empty.textContent = '삭제할 미사용 폴더 데이터가 없습니다.';
         preview.append(empty);
         return preview;
     }
@@ -36,12 +36,12 @@ function createActiveFolderSelection(items) {
     group.className = 'foldy-clear-active foldy-create-items';
     const list = document.createElement('div');
     list.className = 'foldy-create-items-list';
-    const selection = createSelectionToolbar(list, `사용중인 폴더 ${items.length}개`);
+    const selection = createSelectionToolbar(list, `활성 폴더: ${items.length}개`);
 
     if (!items.length) {
         const empty = document.createElement('div');
         empty.className = 'foldy-empty-hint';
-        empty.textContent = '삭제할 사용중인 폴더가 없습니다.';
+        empty.textContent = '삭제할 활성 폴더가 없습니다.';
         list.append(empty);
     } else {
         items.forEach((item, index) => {
@@ -87,7 +87,7 @@ export function createClearDataDialog({
         form.className = 'foldy-clear-form';
         const hint = document.createElement('div');
         hint.className = 'foldy-export-hint';
-        hint.textContent = `${label} 폴더만 삭제합니다. 원본 프롬프트, 로어북, 정규식 내용은 삭제되지 않습니다.`;
+        hint.textContent = `${label} 폴더 데이터만 삭제합니다. 원본 프롬프트, 로어북, 정규식 내용은 유지됩니다.`;
 
         const options = document.createElement('div');
         options.className = 'foldy-clear-options';
@@ -100,7 +100,7 @@ export function createClearDataDialog({
         activeRadio.checked = activeItems.length > 0;
         activeRadio.disabled = activeItems.length === 0;
         const activeText = document.createElement('span');
-        activeText.textContent = `사용중인 폴더 삭제 (${activeItems.length}개)`;
+        activeText.textContent = `활성 폴더 삭제 (${activeItems.length}개)`;
         activeOption.append(activeRadio, activeText);
 
         const unusedOption = document.createElement('label');
@@ -112,7 +112,7 @@ export function createClearDataDialog({
         unusedRadio.checked = activeItems.length === 0 && unusedCount > 0;
         unusedRadio.disabled = unusedCount === 0;
         const unusedText = document.createElement('span');
-        unusedText.textContent = `미사용 폴더 삭제 (${unusedCount}개)`;
+        unusedText.textContent = `미사용 폴더 데이터 삭제 (${unusedCount}개)`;
         unusedOption.append(unusedRadio, unusedText);
 
         const allOption = document.createElement('label');
@@ -122,7 +122,7 @@ export function createClearDataDialog({
         allRadio.name = 'foldy-clear-mode';
         allRadio.value = 'all';
         const allText = document.createElement('span');
-        allText.textContent = '전체 폴더 삭제';
+        allText.textContent = '모든 폴더 데이터 삭제';
         allOption.append(allRadio, allText);
         options.append(activeOption, unusedOption, allOption);
 
@@ -139,9 +139,9 @@ export function createClearDataDialog({
                 message.className = 'foldy-clear-unused-preview';
                 const title = document.createElement('div');
                 title.className = 'foldy-clear-unused-title';
-                title.textContent = '전체 폴더 삭제';
+                title.textContent = '모든 폴더 데이터 삭제';
                 const text = document.createElement('div');
-                text.textContent = `${label}에 저장된 모든 폴더 구조와 접힘 상태를 삭제합니다.`;
+                text.textContent = `저장된 ${label} 폴더 구조와 접힘 상태가 모두 삭제됩니다.`;
                 message.append(title, text);
                 details.append(message);
             }
@@ -156,11 +156,11 @@ export function createClearDataDialog({
             onClosing: value => {
                 if (value.result !== POPUP_RESULT.AFFIRMATIVE) return true;
                 if (!activeRadio.checked && !unusedRadio.checked && !allRadio.checked) {
-                    toastr.warning('삭제할 범위를 선택하세요.');
+                    toastr.warning('삭제할 항목을 선택해 주세요.');
                     return false;
                 }
                 if (activeRadio.checked && !details.querySelector('input[type="checkbox"]:checked')) {
-                    toastr.warning('삭제할 폴더를 선택하세요.');
+                    toastr.warning('삭제할 폴더를 선택해 주세요.');
                     return false;
                 }
                 return true;
@@ -173,18 +173,17 @@ export function createClearDataDialog({
                 .map(input => activeItems[Number(input.value)])
                 .filter(Boolean);
             deleteActiveFoldyFolders(selected);
-            toastr.success(`${selected.length}개의 사용중인 폴더를 삭제했습니다.`);
+            toastr.success(`활성 폴더 ${selected.length}개를 삭제했습니다.`);
         } else if (unusedRadio.checked) {
             deleteUnusedFoldyData(report, scope);
-            toastr.success(`${unusedCount}개의 미사용 폴더를 삭제했습니다.`);
+            toastr.success(`미사용 폴더 데이터 ${unusedCount}개를 삭제했습니다.`);
         } else {
             clearAllFoldyData(scope);
-            toastr.success(`${label} 폴더를 삭제했습니다.`);
+            toastr.success(`${label} 폴더 데이터를 삭제했습니다.`);
         }
         saveSettingsDebounced();
     };
 }
-
 export function createFoldyDataCleanup({
     settings,
     getPresetManager,
@@ -234,8 +233,8 @@ export function createFoldyDataCleanup({
         regexLayoutOwners.preset.add(regexOwnerKey('preset'));
 
         const regexCollapsedOwners = new Set();
-        for (const [typeKey, owners] of Object.entries(regexLayoutOwners)) {
-            for (const owner of owners) regexCollapsedOwners.add(`${typeKey}:${owner}`);
+        for (const owners of Object.values(regexLayoutOwners)) {
+            for (const owner of owners) regexCollapsedOwners.add(owner);
         }
 
         return {
@@ -256,7 +255,7 @@ export function createFoldyDataCleanup({
         // Fragile ST coupling: this matches the visible World Info placeholder
         // label. If ST changes its i18n text, cleanup may report that
         // placeholder as unused data instead of crashing.
-        return /^name:\s*-+\s*.*선택.*-+\s*$/.test(value)
+        return /^name:\s*-+\s*.*\uC120\uD0DD.*-+\s*$/.test(value)
             || /^name:\s*-+\s*.*select.*-+\s*$/i.test(value);
     }
 
@@ -304,7 +303,7 @@ export function createFoldyDataCleanup({
         const value = String(owner || '');
         if (value.startsWith('name:')) return value.slice(5);
         if (/^index:\d+$/.test(value)) return getWorldNames()?.[Number(value.slice(6))] || value;
-        if (value.startsWith('scoped:')) return value.slice(7) || '선택 없음';
+        if (value.startsWith('scoped:')) return value.slice(7) || 'None selected';
         if (value.startsWith('preset:')) {
             const parts = value.split(':');
             return parts.slice(2).join(':') || value;
@@ -390,7 +389,7 @@ export function createFoldyDataCleanup({
                 }
             } else if (item.kind === 'regex') {
                 delete state.layouts.regex?.[item.typeKey]?.[item.owner];
-                delete state.collapsed.regex[`${item.typeKey}:${item.owner}`];
+                delete state.collapsed.regex[item.owner];
             }
         }
     }
@@ -410,10 +409,7 @@ export function createFoldyDataCleanup({
         }
         if (scope === 'all' || scope === 'regex') {
             for (const typeKey of Object.keys(regexTypes)) {
-                const prefix = `${typeKey}:`;
                 const collapsedOwners = report.collapsed.regex
-                    .filter(owner => String(owner).startsWith(prefix))
-                    .map(owner => String(owner).slice(prefix.length))
                     .filter(owner => isRegexOwnerForType(typeKey, owner));
                 mergeOwners(
                     `정규식 ${regexTypes[typeKey].label}`,
@@ -421,7 +417,7 @@ export function createFoldyDataCleanup({
                     collapsedOwners,
                 );
             }
-            addOwners('정규식 접힘 상태', report.collapsed.regex.filter(owner => !Object.keys(regexTypes).some(typeKey => String(owner).startsWith(`${typeKey}:`))));
+            addOwners('정규식 접힘 상태', report.collapsed.regex.filter(owner => !Object.keys(regexTypes).some(typeKey => isRegexOwnerForType(typeKey, owner))));
         }
         return items;
     }

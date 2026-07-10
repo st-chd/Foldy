@@ -31,10 +31,49 @@ export function createLabeledIconButton(icon, title, label, className = '') {
     return button;
 }
 
-export function updateFolderCount(folderElement) {
-    const count = folderElement.querySelector('.foldy-folder-items')?.children.length ?? 0;
+export function bindAction(button, label, handler, {
+    withErrorToast,
+    preventDefault = true,
+    stopPropagation = true,
+} = {}) {
+    button.addEventListener('click', async event => {
+        if (preventDefault) event.preventDefault();
+        if (stopPropagation) event.stopPropagation();
+        const action = () => handler(event);
+        if (typeof withErrorToast === 'function') {
+            await withErrorToast(label, action);
+            return;
+        }
+        await action();
+    });
+    return button;
+}
+
+export function updateFolderCount(folderElement, { itemIdFromElement = null, isItemEnabled = null } = {}) {
+    const children = [...(folderElement.querySelector('.foldy-folder-items')?.children || [])];
+    const count = children.length;
     const countElement = folderElement.querySelector('.foldy-folder-count');
-    if (countElement) countElement.textContent = String(count);
+    if (!countElement) return;
+    if (typeof isItemEnabled !== 'function') {
+        countElement.textContent = folderCountText({ total: count });
+        return;
+    }
+    const enabled = children.filter(child => isItemEnabled(
+        typeof itemIdFromElement === 'function'
+            ? itemIdFromElement(child)
+            : child.dataset?.pmIdentifier ?? child.id,
+    )).length;
+    countElement.textContent = folderCountText({ enabled, total: count });
+}
+
+export function folderCountText({ enabled = null, total = 0 } = {}) {
+    if (Number.isFinite(enabled)) return `${enabled}/${total}`;
+    return String(total);
+}
+
+export function enabledItemCount(itemIds = [], isItemEnabled = null) {
+    if (typeof isItemEnabled !== 'function') return null;
+    return itemIds.filter(id => isItemEnabled(id)).length;
 }
 
 export function closeOpenFolderMenus(root = document) {
@@ -70,6 +109,10 @@ export function enabledState(values) {
     if (enabledCount === 0) return 'off';
     if (enabledCount === values.length) return 'on';
     return 'mixed';
+}
+
+export function shouldShowMixedStateBadge(kind, state) {
+    return kind === 'regex' && state === 'mixed';
 }
 
 export function createSelectionToolbar(list, titleText = '제목') {
@@ -241,6 +284,7 @@ export function createFolderElement(folder, {
     onStateToggle,
     state = null,
     onBulkMove = null,
+    onCollapseChange = null,
     extraButtons = [],
     ownerCollapsed,
     saveCollapsed,
@@ -324,6 +368,7 @@ export function createFolderElement(folder, {
         const values = ownerCollapsed(kind, owner);
         isCollapsed ? values.add(folder.id) : values.delete(folder.id);
         saveCollapsed(kind, owner, values);
+        onCollapseChange?.(folder.id, isCollapsed);
     };
 
     collapse.addEventListener('click', event => {
@@ -356,7 +401,7 @@ export function createFolderElement(folder, {
     header.append(drag, collapse);
     if (onStateToggle) {
         header.classList.add('has-state-toggle');
-        if (state === 'mixed') header.classList.add('has-mixed-state');
+        if (shouldShowMixedStateBadge(kind, state)) header.classList.add('has-mixed-state');
         const stateButton = createIconButton('fa-toggle-off', '폴더 항목 켜기/끄기', 'foldy-state-toggle');
         setStateButtonIcon(stateButton, state);
         stateButton.addEventListener('click', async event => {
@@ -371,8 +416,11 @@ export function createFolderElement(folder, {
         });
         actions.append(stateButton);
     }
-    header.append(name, count);
-    if (state === 'mixed') header.append(mixedBadge);
+    if (shouldShowMixedStateBadge(kind, state)) {
+        header.append(name, count, mixedBadge);
+    } else {
+        header.append(name, count);
+    }
     if (extraButtons.length) actions.append(...extraButtons);
     if (onBulkMove) {
         header.classList.add('has-bulk-move');
@@ -383,4 +431,3 @@ export function createFolderElement(folder, {
     element.append(header, items);
     return element;
 }
-

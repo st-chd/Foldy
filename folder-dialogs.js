@@ -1,7 +1,7 @@
-import { createColorSetting, createIconButton, createSelectionToolbar, appendSelectionRow, themeColorHex } from './folder-ui.js';
+import { bindAction, createColorSetting, createIconButton, createSelectionToolbar, appendSelectionRow, themeColorHex } from './folder-ui.js';
 import {
     hasDuplicateFolderName,
-    moveItemToFolder,
+    layoutWithItemMovedToFolder,
     rootItemIds,
 } from './model.js';
 
@@ -419,16 +419,14 @@ export function createFolderDialogs({
 
     function createRootBulkMoveButton(onClick) {
         const button = createIconButton('fa-folder-tree', '\uBBF8\uBD84\uB958 \uC77C\uAD04 \uC774\uB3D9', 'foldy-root-bulk-move');
-        button.addEventListener('click', async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            await withErrorToast('\uBBF8\uBD84\uB958 \uC77C\uAD04 \uC774\uB3D9', onClick);
-        });
+        bindAction(button, '\uBBF8\uBD84\uB958 \uC77C\uAD04 \uC774\uB3D9', onClick, { withErrorToast });
         return button;
     }
 
     function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
-        if (!element || element.querySelector(':scope .foldy-move-to-folder') || !layout.folders.length) return;
+        if (!element) return;
+        element.querySelectorAll?.(':scope .foldy-move-to-folder').forEach(button => button.remove());
+        if (!layout.folders.length) return;
         const title = '\uD3F4\uB354\uB85C \uC774\uB3D9';
         const button = kind === 'prompt' ? document.createElement('span') : createIconButton('fa-folder-open', title, 'foldy-move-to-folder');
         if (kind === 'prompt') {
@@ -436,16 +434,13 @@ export function createFolderDialogs({
             button.title = title;
             button.setAttribute('aria-label', title);
         }
-        button.addEventListener('click', async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            await withErrorToast('\uD3F4\uB354 \uC774\uB3D9', async () => {
-                const target = await requestMoveTarget(layout, itemId);
-                if (target === null) return;
-                if (!moveItemToFolder(layout, itemId, target)) return;
-                await onMove(layout);
-            });
-        });
+        bindAction(button, '\uD3F4\uB354 \uC774\uB3D9', async () => {
+            const target = await requestMoveTarget(layout, itemId);
+            if (target === null) return;
+            const result = layoutWithItemMovedToFolder(layout, itemId, target);
+            if (!result.changed) return;
+            await onMove(result.layout);
+        }, { withErrorToast });
 
         if (kind === 'prompt') {
             element.querySelector('.prompt_manager_prompt_controls')?.prepend(button);
@@ -469,7 +464,10 @@ export function createFolderDialogs({
         }
 
         if (kind === 'regex') {
-            element.querySelector('.regex_script_buttons')?.prepend(button);
+            const host = element.querySelector('.regex_script_buttons')
+                || element.querySelector('.regex_script_expand')?.parentElement
+                || element;
+            host.prepend(button);
         }
     }
 

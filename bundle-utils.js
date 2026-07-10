@@ -1,8 +1,9 @@
-import { createIconButton, createIconCodeButton } from './folder-ui.js';
+﻿import { bindAction, createIconButton, createIconCodeButton } from './folder-ui.js';
 
 export const BUNDLE_KIND = 'foldy-bundle';
 export const BUNDLE_VERSION = 1;
 export const SUPPORTED_BUNDLE_VERSIONS = new Set([1]);
+export const DEFAULT_MAX_BUNDLE_BYTES = 5 * 1024 * 1024;
 
 export function cloneJson(value) {
     if (typeof structuredClone === 'function') {
@@ -44,12 +45,12 @@ export function createFolderRenameTracker({ toaster = globalThis.toastr } = {}) 
         },
     };
 }
-
 export function isObjectRecord(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function hasValue(value) {
+    // Falsy values like 0 and false can be valid imported identifiers.
     return value !== undefined && value !== null && String(value) !== '';
 }
 
@@ -101,27 +102,30 @@ export function bundleEnvelope(scope) {
 
 export function importedLayoutSummary({
     currentLabel,
-    sourceLabel = '불러온 폴더의 항목',
-    matchedLabel = '매칭된 항목',
-    failedLabel = '매칭 실패',
+    sourceLabel = '\uBD88\uB7EC\uC628 \uD3F4\uB354\uC758 \uD56D\uBAA9',
+    matchedLabel = '\uB9E4\uCE6D\uB41C \uD56D\uBAA9',
+    failedLabel = '\uB9E4\uCE6D \uC2E4\uD328',
+    ambiguousLabel = '\uC774\uB984 \uC911\uBCF5\uC73C\uB85C \uAC74\uB108\uB700',
     currentOnlyLabel,
-    unplacedLabel = '폴더에 배치되지 않을 항목',
+    unplacedLabel = '\uD3F4\uB354\uC5D0 \uBC30\uCE58\uB418\uC9C0 \uC54A\uC744 \uD56D\uBAA9',
     currentCount,
     sourceCount,
     matchedSourceCount,
     matchedTargetCount,
+    ambiguousCount = 0,
 }) {
     const failedCount = Math.max(0, sourceCount - matchedSourceCount);
     const currentOnlyCount = Math.max(0, currentCount - sourceCount);
     const unplacedCount = Math.max(0, currentCount - matchedTargetCount);
     const rows = [
-        `${currentLabel}: ${currentCount}개`,
-        `${sourceLabel}: ${sourceCount}개`,
-        `${matchedLabel}: ${matchedSourceCount}개`,
+        `${currentLabel}: ${currentCount}\uAC1C`,
+        `${sourceLabel}: ${sourceCount}\uAC1C`,
+        `${matchedLabel}: ${matchedSourceCount}\uAC1C`,
     ];
-    if (failedCount > 0) rows.push(`${failedLabel}: ${failedCount}개`);
-    if (currentOnlyCount > 0) rows.push(`${currentOnlyLabel}: ${currentOnlyCount}개`);
-    if (unplacedCount > 0) rows.push(`${unplacedLabel}: ${unplacedCount}개`);
+    if (failedCount > 0) rows.push(`${failedLabel}: ${failedCount}\uAC1C`);
+    if (ambiguousCount > 0) rows.push(`${ambiguousLabel}: ${ambiguousCount}\uAC1C`);
+    if (currentOnlyCount > 0) rows.push(`${currentOnlyLabel}: ${currentOnlyCount}\uAC1C`);
+    if (unplacedCount > 0) rows.push(`${unplacedLabel}: ${unplacedCount}\uAC1C`);
     return rows.join('\n');
 }
 
@@ -130,6 +134,10 @@ export function nameKey(value) {
 }
 
 export function uniqueNameMap(values, getName) {
+    return uniqueNameIndex(values, getName).unique;
+}
+
+export function uniqueNameIndex(values, getName) {
     const buckets = new Map();
     values.forEach(value => {
         const key = nameKey(getName(value));
@@ -137,21 +145,26 @@ export function uniqueNameMap(values, getName) {
         if (!buckets.has(key)) buckets.set(key, []);
         buckets.get(key).push(value);
     });
-    return new Map([...buckets.entries()]
-        .filter(([, matches]) => matches.length === 1)
-        .map(([key, matches]) => [key, matches[0]]));
+    return {
+        unique: new Map([...buckets.entries()]
+            .filter(([, matches]) => matches.length === 1)
+            .map(([key, matches]) => [key, matches[0]])),
+        ambiguous: new Set([...buckets.entries()]
+            .filter(([, matches]) => matches.length > 1)
+            .map(([key]) => key)),
+    };
 }
 
 export function createBundleActions({
     Popup,
     POPUP_RESULT,
     POPUP_TYPE,
-    extensionName,
     debugLog,
     withErrorToast,
     ownerCollapsed,
     saveCollapsed,
     isLoreOriginalDataCompatible,
+    maxBundleBytes = DEFAULT_MAX_BUNDLE_BYTES,
 }) {
     function downloadJson(value, filename) {
         const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
@@ -174,9 +187,15 @@ export function createBundleActions({
             input.type = 'file';
             input.accept = 'application/json,.json';
             let settled = false;
+            const onWindowFocus = () => {
+                setTimeout(() => {
+                    if (!input.files?.length) settle(null);
+                }, 0);
+            };
             const settle = value => {
                 if (settled) return;
                 settled = true;
+                globalThis.window?.removeEventListener('focus', onWindowFocus);
                 resolve(value);
             };
             input.addEventListener('cancel', () => settle(null), { once: true });
@@ -187,14 +206,19 @@ export function createBundleActions({
                     return;
                 }
                 try {
+                    if (Number.isFinite(maxBundleBytes) && file.size > maxBundleBytes) {
+                        toastr.error(`번들 파일이 너무 큽니다. ${Math.ceil(maxBundleBytes / 1024 / 1024)}MB 이하의 JSON 파일을 선택해 주세요.`);
+                        settle(null);
+                        return;
+                    }
                     settle(JSON.parse(await file.text()));
                 } catch (error) {
-                    console.error(`[${extensionName}] Failed to read bundle`, error);
                     debugLog('번들 파일 읽기 실패', error);
-                    toastr.error('번들을 읽을 수 없습니다.');
+                    toastr.error('번들을 읽지 못했습니다.');
                     settle(null);
                 }
             }, { once: true });
+            globalThis.window?.addEventListener('focus', onWindowFocus, { once: true });
             input.click();
         });
     }
@@ -205,11 +229,11 @@ export function createBundleActions({
             return migrateBundle(bundle);
         }
         if (result.reason === 'scope') {
-            toastr.error('현재 항목에 맞는 번들이 아닙니다.');
+            toastr.error('이 번들은 현재 항목 유형과 맞지 않습니다.');
             return false;
         }
         if (result.reason === 'future-version') {
-            toastr.error('이 번들은 더 새로운 버전에서 만들어졌습니다.');
+            toastr.error('이 번들은 더 최신 Foldy 버전에서 만들어졌습니다.');
             return false;
         }
         toastr.error('지원하지 않는 번들 버전입니다.');
@@ -256,13 +280,13 @@ export function createBundleActions({
     }
 
     function assertPromptBundleShape(bundle) {
-        if (!assertLayoutBundleShape(bundle, '프롬프트')) return false;
+            if (!assertLayoutBundleShape(bundle, '프롬프트')) return false;
         if (!Array.isArray(bundle.prompts) || !bundle.prompts.every(isPromptRecord)) {
-            toastr.error('프롬프트 번들의 프롬프트 데이터가 올바르지 않습니다.');
+            toastr.error('프롬프트 번들에 올바르지 않은 프롬프트 데이터가 있습니다.');
             return false;
         }
         if (!Array.isArray(bundle.promptOrder) || !bundle.promptOrder.every(entry => isObjectRecord(entry) && hasValue(entry.identifier))) {
-            toastr.error('프롬프트 번들의 순서 데이터가 올바르지 않습니다.');
+            toastr.error('프롬프트 번들에 올바르지 않은 프롬프트 순서 데이터가 있습니다.');
             return false;
         }
         return true;
@@ -275,7 +299,7 @@ export function createBundleActions({
             return false;
         }
         if (!Object.values(bundle.data.entries).every(isLoreEntryRecord)) {
-            toastr.error('로어북 번들의 항목 데이터가 올바르지 않습니다.');
+            toastr.error('로어북 번들에 올바르지 않은 항목 데이터가 있습니다.');
             return false;
         }
         if (!isLoreOriginalDataCompatible(bundle.data)) return false;
@@ -285,7 +309,7 @@ export function createBundleActions({
     function assertRegexBundleShape(bundle) {
         if (!assertLayoutBundleShape(bundle, '정규식')) return false;
         if (!Array.isArray(bundle.scripts) || !bundle.scripts.every(isRegexScriptRecord)) {
-            toastr.error('정규식 번들의 스크립트 데이터가 올바르지 않습니다.');
+            toastr.error('정규식 번들에 올바르지 않은 스크립트 데이터가 있습니다.');
             return false;
         }
         return true;
@@ -294,46 +318,29 @@ export function createBundleActions({
     function createBundleButtons(onExport, onImport) {
         const importButton = createIconCodeButton('f2f6', '번들 불러오기', 'bundle-button');
         const exportButton = createIconCodeButton('f2f5', '번들 내보내기', 'bundle-button');
-        exportButton.addEventListener('click', async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            await withErrorToast('번들 내보내기', onExport);
-        });
-        importButton.addEventListener('click', async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            await withErrorToast('번들 불러오기', onImport);
-        });
+        bindAction(exportButton, '번들 내보내기', onExport, { withErrorToast });
+        bindAction(importButton, '번들 불러오기', onImport, { withErrorToast });
         return [importButton, exportButton];
     }
 
     function createCollapseButtons(kind, owner, getLayout, onChange) {
         const expandAll = createIconButton('fa-folder-open', '모두 펼치기', 'expand-all');
         const collapseAll = createIconButton('fa-folder', '모두 접기', 'collapse-all');
-        collapseAll.addEventListener('click', async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            await withErrorToast('모두 접기', async () => {
-                const layout = getLayout();
-                const collapsed = ownerCollapsed(kind, owner);
-                for (const folder of layout.folders) collapsed.add(folder.id);
-                saveCollapsed(kind, owner, collapsed);
-                await onChange();
-            });
-        });
-        expandAll.addEventListener('click', async event => {
-            event.preventDefault();
-            event.stopPropagation();
-            await withErrorToast('모두 펼치기', async () => {
-                const collapsed = ownerCollapsed(kind, owner);
-                collapsed.clear();
-                saveCollapsed(kind, owner, collapsed);
-                await onChange();
-            });
-        });
+        bindAction(collapseAll, '모두 접기', async () => {
+            const layout = getLayout();
+            const collapsed = ownerCollapsed(kind, owner);
+            for (const folder of layout.folders) collapsed.add(folder.id);
+            saveCollapsed(kind, owner, collapsed);
+            await onChange();
+        }, { withErrorToast });
+        bindAction(expandAll, '모두 펼치기', async () => {
+            const collapsed = ownerCollapsed(kind, owner);
+            collapsed.clear();
+            saveCollapsed(kind, owner, collapsed);
+            await onChange();
+        }, { withErrorToast });
         return [expandAll, collapseAll];
     }
-
     async function requestBundleExportMode(titleText, fullLabel, layoutLabel, hintText, inputName = 'foldy_export_mode') {
         const form = document.createElement('div');
         form.className = 'foldy-export-form';

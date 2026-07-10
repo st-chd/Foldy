@@ -54,7 +54,7 @@ export function orderItemsByLayout(layout, items, getId = item => item?.id) {
 }
 
 function uniqueFolderName(name, usedNames) {
-    const base = String(name || 'Folder').trim() || 'Folder';
+    const base = String(name || '새 폴더').trim() || '새 폴더';
     let candidate = base;
     let suffix = 2;
     while (usedNames.has(candidate.toLocaleLowerCase())) {
@@ -91,7 +91,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
             items.push(itemId);
         }
 
-        const requestedName = String(candidate.name || 'Folder').trim() || 'Folder';
+        const requestedName = String(candidate.name || '새 폴더').trim() || '새 폴더';
         const name = uniqueFolderName(candidate.name, usedFolderNames);
         if (name !== requestedName) onFolderRenamed?.({ from: requestedName, to: name, id });
 
@@ -179,12 +179,18 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
     return { version: FOLDY_VERSION, root, folders };
 }
 
-export function layoutFromTree(nodes, sourceLayout, itemIds = [], { preserveFolderIds = new Set(), normalizeOptions = {}, onMissingPreservedFolders = null } = {}) {
+export function layoutFromTree(nodes, sourceLayout, itemIds = [], {
+    preserveFolderIds = new Set(),
+    normalizeOptions = {},
+    onMissingPreservedFolders = null,
+    onMissingSourceFolders = null,
+} = {}) {
     const folderSource = new Map((sourceLayout?.folders || []).map(folder => [String(folder.id), folder]));
     const preserved = new Set([...preserveFolderIds].map(String));
     const seenPreservedFolders = new Set();
     const root = [];
     const folders = [];
+    const missingSourceFolders = [];
 
     for (const node of Array.isArray(nodes) ? nodes : []) {
         const id = String(node?.id ?? '');
@@ -192,7 +198,10 @@ export function layoutFromTree(nodes, sourceLayout, itemIds = [], { preserveFold
 
         if (node.type === 'folder') {
             const source = folderSource.get(id);
-            if (!source) continue;
+            if (!source) {
+                missingSourceFolders.push(id);
+                continue;
+            }
             const items = preserved.has(id) || node.preserveItems
                 ? [...source.items]
                 : (Array.isArray(node.itemIds) ? node.itemIds : []).map(String).filter(Boolean);
@@ -206,6 +215,8 @@ export function layoutFromTree(nodes, sourceLayout, itemIds = [], { preserveFold
             root.push({ type: 'item', id });
         }
     }
+
+    if (missingSourceFolders.length) onMissingSourceFolders?.(missingSourceFolders);
 
     const missingPreservedFolders = [...preserved].filter(id => !seenPreservedFolders.has(id));
     if (missingPreservedFolders.length) {
@@ -356,60 +367,127 @@ export function createRenderGate() {
     };
 }
 
-export function moveItemToFolder(layout, itemId, folderId) {
+// Layout transformation helpers return fresh layout objects. Callers rely on
+// layout identity as a cheap staleness check while dialogs and renders await.
+export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
     const id = String(itemId);
     const currentRootIndex = layout.root.findIndex(node => node.type === 'item' && node.id === id);
     const currentFolder = layout.folders.find(folder => folder.items.includes(id));
     const currentFolderId = currentFolder?.id ?? '';
     const targetFolderId = String(folderId ?? '');
-    if (currentRootIndex !== -1 && !targetFolderId) return false;
-    if (currentFolderId === targetFolderId) return false;
+    if (currentRootIndex !== -1 && !targetFolderId) return { changed: false, layout };
+    if (currentFolderId === targetFolderId) return { changed: false, layout };
+    if (targetFolderId && !layout.folders.some(value => value.id === targetFolderId)) return { changed: false, layout };
 
-    layout.root = layout.root.filter(node => !(node.type === 'item' && node.id === id));
-    for (const folder of layout.folders) {
-        folder.items = folder.items.filter(value => value !== id);
-    }
+    const root = layout.root.filter(node => !(node.type === 'item' && node.id === id));
+    const folders = layout.folders.map(folder => ({
+        ...folder,
+        items: folder.items.filter(value => value !== id),
+    }));
 
     if (!targetFolderId) {
-        layout.root.unshift({ type: 'item', id });
-        return true;
+        return {
+            changed: true,
+            layout: { ...layout, root: [{ type: 'item', id }, ...root], folders },
+        };
     }
 
-    const folder = layout.folders.find(value => value.id === targetFolderId);
-    if (!folder) return false;
-    folder.items.push(id);
+    return {
+        changed: true,
+        layout: {
+            ...layout,
+            root,
+            folders: folders.map(folder => folder.id === targetFolderId
+                ? { ...folder, items: [...folder.items, id] }
+                : folder),
+        },
+    };
+}
+
+export function layoutWithItemsMovedToFolder(layout, itemIds, folderId) {
+    const ids = itemIds.map(String);
+    if (!ids.length) return { changed: false, layout };
+    const idSet = new Set(ids);
+    const targetFolderId = String(folderId ?? '');
+    if (targetFolderId && !layout.folders.some(value => value.id === targetFolderId)) return { changed: false, layout };
+
+    const root = layout.root.filter(node => !(node.type === 'item' && idSet.has(String(node.id))));
+    const folders = layout.folders.map(folder => ({
+        ...folder,
+        items: folder.items.filter(value => !idSet.has(String(value))),
+    }));
+
+    if (!targetFolderId) {
+        return {
+            changed: true,
+            layout: { ...layout, root: [...ids.map(id => ({ type: 'item', id })), ...root], folders },
+        };
+    }
+
+    return {
+        changed: true,
+        layout: {
+            ...layout,
+            root,
+            folders: folders.map(folder => folder.id === targetFolderId
+                ? { ...folder, items: [...folder.items, ...ids] }
+                : folder),
+        },
+    };
+}
+
+export function layoutWithAddedFolder(layout, folderName, itemIds = [], createFolderId = generateUUID) {
+    const selected = new Set(itemIds.map(String));
+    const folder = { id: createFolderId(), name: folderName, color: '', items: [...selected] };
+    return {
+        changed: true,
+        folder,
+        layout: {
+            ...layout,
+            folders: [...layout.folders, folder],
+            root: [
+                { type: 'folder', id: folder.id },
+                ...layout.root.filter(node => node?.type !== 'item' || !selected.has(String(node.id))),
+            ],
+        },
+    };
+}
+
+// Folder edits must replace the layout object so an open dialog can detect
+// that another operation has changed its source layout while it was awaiting.
+export function layoutWithUpdatedFolder(layout, folderId, values = {}, { applyStyleToAll = false } = {}) {
+    const id = String(folderId ?? '');
+    const source = layout.folders.find(folder => folder.id === id);
+    if (!source) return { changed: false, layout };
+
+    const style = {
+        color: values.color,
+        borderColor: values.borderColor,
+        nameColor: values.nameColor,
+    };
+    const folders = layout.folders.map(folder => {
+        if (folder.id === id) return { ...folder, ...values };
+        return applyStyleToAll ? { ...folder, ...style } : folder;
+    });
+    return { changed: true, layout: { ...layout, folders } };
+}
+
+export function moveItemToFolder(layout, itemId, folderId) {
+    const result = layoutWithItemMovedToFolder(layout, itemId, folderId);
+    if (!result.changed) return false;
+    Object.assign(layout, result.layout);
     return true;
 }
 
 export function moveItemsToFolder(layout, itemIds, folderId) {
-    const ids = itemIds.map(String);
-    if (!ids.length) return false;
-    const idSet = new Set(ids);
-    const targetFolderId = String(folderId ?? '');
-
-    layout.root = layout.root.filter(node => !(node.type === 'item' && idSet.has(String(node.id))));
-    for (const folder of layout.folders) {
-        folder.items = folder.items.filter(value => !idSet.has(String(value)));
-    }
-
-    if (!targetFolderId) {
-        layout.root.unshift(...ids.map(id => ({ type: 'item', id })));
-        return true;
-    }
-
-    const folder = layout.folders.find(value => value.id === targetFolderId);
-    if (!folder) return false;
-    folder.items.push(...ids);
+    const result = layoutWithItemsMovedToFolder(layout, itemIds, folderId);
+    if (!result.changed) return false;
+    Object.assign(layout, result.layout);
     return true;
 }
 
 export function addFolderWithItems(layout, folderName, itemIds = [], createFolderId = generateUUID) {
-    const selected = new Set(itemIds.map(String));
-    const folder = { id: createFolderId(), name: folderName, color: '', items: [...selected] };
-    layout.folders.push(folder);
-    layout.root = [
-        { type: 'folder', id: folder.id },
-        ...layout.root.filter(node => node?.type !== 'item' || !selected.has(String(node.id))),
-    ];
-    return folder;
+    const result = layoutWithAddedFolder(layout, folderName, itemIds, createFolderId);
+    Object.assign(layout, result.layout);
+    return result.folder;
 }
