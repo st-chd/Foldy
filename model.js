@@ -1,3 +1,5 @@
+import { folderStyleValues } from './folder-style.js';
+
 export const FOLDY_VERSION = 1;
 
 export function generateUUID() {
@@ -460,34 +462,10 @@ export function layoutWithUpdatedFolder(layout, folderId, values = {}, { applySt
     const source = layout.folders.find(folder => folder.id === id);
     if (!source) return { changed: false, layout };
 
-    const style = {
-        color: values.color,
-        borderColor: values.borderColor,
-        nameColor: values.nameColor,
-    };
+    const style = folderStyleValues(values);
     const folders = layout.folders.map(folder => {
         if (folder.id === id) return { ...folder, ...values };
         return applyStyleToAll ? { ...folder, ...style } : folder;
     });
     return { changed: true, layout: { ...layout, folders } };
-}
-
-export function moveItemToFolder(layout, itemId, folderId) {
-    const result = layoutWithItemMovedToFolder(layout, itemId, folderId);
-    if (!result.changed) return false;
-    Object.assign(layout, result.layout);
-    return true;
-}
-
-export function moveItemsToFolder(layout, itemIds, folderId) {
-    const result = layoutWithItemsMovedToFolder(layout, itemIds, folderId);
-    if (!result.changed) return false;
-    Object.assign(layout, result.layout);
-    return true;
-}
-
-export function addFolderWithItems(layout, folderName, itemIds = [], createFolderId = generateUUID) {
-    const result = layoutWithAddedFolder(layout, folderName, itemIds, createFolderId);
-    Object.assign(layout, result.layout);
-    return result.folder;
 }

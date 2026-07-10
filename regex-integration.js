@@ -181,7 +181,7 @@ export function createRegexIntegration({
             try {
                 list.querySelectorAll('.foldy-folder').forEach(updateFolderCount);
                 const next = regexLayoutFromDomImpl(list, layout, regexItemIds(typeKey), {
-                    onMissingSourceFolders: ids => debugLog('정규식 DOM에 저장된 폴더가 없습니다.', ids),
+                    onMissingSourceFolders: ids => debugLog('정규식 DOM에 저장된 폴더가 없습니다.', ids, 'warn'),
                 });
                 if (shouldRejectDomLayout(layout, next, 'Regex')) {
                     enhanceRegexLists();

@@ -180,6 +180,9 @@ export function createLorebookIntegration({
             const collapsed = ownerCollapsed('lore', owner);
             const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
 
+            // This observer watches a list Foldy rewrites. Disconnect it for
+            // the entire render transaction; any DOM mutation added here must
+            // remain inside this guarded block to avoid observer feedback.
             loreObserver?.disconnect();
             destroyLoreSortables(list);
             closeOpenFolderMenus(list);

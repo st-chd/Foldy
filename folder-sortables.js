@@ -108,6 +108,7 @@ export function setupFolderSortables({
     };
 
     const start = (_, ui) => {
+        clearDropState();
         const item = ui.item?.[0];
         setSorting(true);
         draggingItemIntoFolder = isItemElement(item);
@@ -167,7 +168,13 @@ export function setupFolderSortables({
             start,
             sort: rememberPointer,
             receive: (_, ui) => {
-                if (ui.item.hasClass('foldy-folder')) $(ui.sender).sortable('cancel');
+                if (ui.item.hasClass('foldy-folder')) {
+                    $(ui.sender).sortable('cancel');
+                    // A cancelled sender is not guaranteed to emit stop across
+                    // supported jQuery UI/browser combinations.
+                    setSorting(false);
+                    clearDropState();
+                }
             },
             stop: (_, ui) => finishSort(ui, { nested: true }),
         });

@@ -1,4 +1,4 @@
-﻿import { bindAction, createIconButton, createIconCodeButton } from './folder-ui.js';
+﻿import { bindAction, createIconButton } from './folder-ui.js';
 
 export const BUNDLE_KIND = 'foldy-bundle';
 export const BUNDLE_VERSION = 1;
@@ -17,11 +17,16 @@ export function cloneJson(value) {
 }
 
 export function safeFilePart(value) {
-    return String(value || 'current')
+    const part = String(value || 'current')
         .trim()
         .replace(/[<>:"/\\|?*\x00-\x1F\x7F]+/g, '_')
         .replace(/^_+|_+$/g, '')
         .slice(0, 80) || 'current';
+    // Windows reserves these names even when an extension is appended.
+    // Prefixing keeps the user-provided name recognizable while making it safe.
+    return /^(?:CON|PRN|AUX|NUL|CLOCK\$|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(part)
+        ? `_${part}`
+        : part;
 }
 
 export function bundleFilename(name) {
@@ -187,15 +192,9 @@ export function createBundleActions({
             input.type = 'file';
             input.accept = 'application/json,.json';
             let settled = false;
-            const onWindowFocus = () => {
-                setTimeout(() => {
-                    if (!input.files?.length) settle(null);
-                }, 0);
-            };
             const settle = value => {
                 if (settled) return;
                 settled = true;
-                globalThis.window?.removeEventListener('focus', onWindowFocus);
                 resolve(value);
             };
             input.addEventListener('cancel', () => settle(null), { once: true });
@@ -218,7 +217,6 @@ export function createBundleActions({
                     settle(null);
                 }
             }, { once: true });
-            globalThis.window?.addEventListener('focus', onWindowFocus, { once: true });
             input.click();
         });
     }
@@ -316,8 +314,8 @@ export function createBundleActions({
     }
 
     function createBundleButtons(onExport, onImport) {
-        const importButton = createIconCodeButton('f2f6', '번들 불러오기', 'bundle-button');
-        const exportButton = createIconCodeButton('f2f5', '번들 내보내기', 'bundle-button');
+        const importButton = createIconButton('fa-file-import', '번들 불러오기', 'bundle-button');
+        const exportButton = createIconButton('fa-file-export', '번들 내보내기', 'bundle-button');
         bindAction(exportButton, '번들 내보내기', onExport, { withErrorToast });
         bindAction(importButton, '번들 불러오기', onImport, { withErrorToast });
         return [importButton, exportButton];

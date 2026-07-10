@@ -114,8 +114,9 @@ function settings() {
     return foldySettingsStore.settings();
 }
 
-function debugLog(message, detail = null) {
-    console.error?.(`[${EXTENSION_NAME}] ${message}`, detail ?? '');
+function debugLog(message, detail = null, level = 'error') {
+    const logger = level === 'warn' ? console.warn : console.error;
+    logger?.(`[${EXTENSION_NAME}] ${message}`, detail ?? '');
 }
 
 async function withErrorToast(label, fn) {
@@ -657,7 +658,7 @@ function loreLayoutFromDom(list, sourceLayout, allIds) {
         }
     }
     return layoutFromTree(nodes, sourceLayout, allIds, {
-        onMissingSourceFolders: ids => debugLog('로어북 DOM에 저장된 폴더가 없습니다.', ids),
+        onMissingSourceFolders: ids => debugLog('로어북 DOM에 저장된 폴더가 없습니다.', ids, 'warn'),
     });
 }
 

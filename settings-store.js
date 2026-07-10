@@ -29,6 +29,8 @@ export function createFoldySettingsStore({
     cloneValue = defaultCloneValue,
     logger = console,
 } = {}) {
+    let cachedSettings = null;
+
     const preserveCorrupted = (value, key, corruptedValue) => {
         if (!value._corrupted || typeof value._corrupted !== 'object' || Array.isArray(value._corrupted)) {
             value._corrupted = {};
@@ -79,12 +81,16 @@ export function createFoldySettingsStore({
         ensureChildObject(collapsed, 'prompt', 'collapsed.prompt');
         ensureChildObject(collapsed, 'lore', 'collapsed.lore');
         ensureChildObject(collapsed, 'regex', 'collapsed.regex');
-        return value;
+        cachedSettings = value;
+        return cachedSettings;
     };
 
     const settings = () => {
+        if (cachedSettings && extensionSettings[settingsKey] === cachedSettings) return cachedSettings;
         return repairSettings();
     };
 
-    return { repairSettings, settings };
+    const revalidateSettings = () => repairSettings();
+
+    return { repairSettings, revalidateSettings, settings };
 }

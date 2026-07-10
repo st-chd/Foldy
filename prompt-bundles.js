@@ -107,7 +107,7 @@ export function createPromptSortables({
         return layoutFromTree(nodes, sourceLayout, promptOrderIds(manager), {
             preserveFolderIds,
             normalizeOptions,
-            onMissingSourceFolders: ids => debugLog('프롬프트 DOM에 저장된 폴더가 없습니다.', ids),
+            onMissingSourceFolders: ids => debugLog('프롬프트 DOM에 저장된 폴더가 없습니다.', ids, 'warn'),
         });
     }
 

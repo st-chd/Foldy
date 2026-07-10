@@ -1,19 +1,13 @@
+import { folderStyleValues } from './folder-style.js';
+
+export { folderStyleValues } from './folder-style.js';
+
 export function createIconButton(icon, title, className = '') {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `menu_button fa-solid ${icon} ${className}`.trim();
     button.title = title;
     button.setAttribute('aria-label', title);
-    return button;
-}
-
-export function createIconCodeButton(code, title, className = '') {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `menu_button fa-solid foldy-code-icon ${className}`.trim();
-    button.title = title;
-    button.setAttribute('aria-label', title);
-    button.textContent = String.fromCodePoint(parseInt(code, 16));
     return button;
 }
 
@@ -86,14 +80,6 @@ export function closeOpenFolderMenus(root = document) {
         element.classList.remove('is-actions-open');
         element.querySelector('.foldy-folder-more')?.setAttribute('aria-expanded', 'false');
     });
-}
-
-export function folderStyleValues(values) {
-    return {
-        color: values.color,
-        borderColor: values.borderColor,
-        nameColor: values.nameColor,
-    };
 }
 
 export function applyFolderStyleToAll(layout, sourceFolderId, style) {

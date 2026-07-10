@@ -98,11 +98,6 @@
     display: none;
 }
 
-.foldy-code-icon {
-    font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
-    font-weight: 900;
-}
-
 .foldy-folder {
     --foldy-background-color: var(--SmartThemeBlurTintColor);
     --foldy-border-color: var(--SmartThemeBorderColor);
