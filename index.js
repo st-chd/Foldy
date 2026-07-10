@@ -114,6 +114,10 @@ function settings() {
     return foldySettingsStore.settings();
 }
 
+function revalidateSettings() {
+    return foldySettingsStore.revalidateSettings();
+}
+
 function debugLog(message, detail = null, level = 'error') {
     const logger = level === 'warn' ? console.warn : console.error;
     logger?.(`[${EXTENSION_NAME}] ${message}`, detail ?? '');
@@ -140,6 +144,7 @@ function registerFoldyRuntimeEvents({
     eventSource,
     eventTypes,
     settings,
+    revalidateSettings,
     saveSettingsDebounced,
     renderPrompts,
     renderRegex,
@@ -149,6 +154,7 @@ function registerFoldyRuntimeEvents({
     runtimeEventsRegistered = true;
 
     eventSource.on(eventTypes.PRESET_RENAMED_BEFORE, ({ apiId, oldName, newName }) => {
+        revalidateSettings();
         const oldPromptKey = `${apiId}:${oldName}`;
         const newPromptKey = `${apiId}:${newName}`;
         if (settings().layouts.prompts[oldPromptKey] && !settings().layouts.prompts[newPromptKey]) {
@@ -158,11 +164,18 @@ function registerFoldyRuntimeEvents({
         }
     });
     eventSource.on(eventTypes.PRESET_CHANGED, () => {
+        revalidateSettings();
         renderPrompts();
         renderRegex();
     });
-    eventSource.on(eventTypes.WORLDINFO_SETTINGS_UPDATED, syncLorebookRenameMigration);
-    eventSource.on(eventTypes.CHAT_CHANGED, renderRegex);
+    eventSource.on(eventTypes.WORLDINFO_SETTINGS_UPDATED, (...args) => {
+        revalidateSettings();
+        syncLorebookRenameMigration(...args);
+    });
+    eventSource.on(eventTypes.CHAT_CHANGED, () => {
+        revalidateSettings();
+        renderRegex();
+    });
 }
 
 function createToolbarFactory({ withErrorToast }) {
@@ -1077,6 +1090,7 @@ export async function init() {
         eventSource,
         eventTypes: event_types,
         settings,
+        revalidateSettings,
         saveSettingsDebounced,
         renderPrompts: () => promptManager?.render?.(false),
         renderRegex: () => enhanceRegexLists(),
