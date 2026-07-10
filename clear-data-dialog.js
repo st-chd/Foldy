@@ -1,5 +1,7 @@
 ﻿import { appendSelectionRow, createSelectionToolbar } from './folder-ui.js';
 
+import { removeFolder } from './model.js';
+
 function createUnusedDataPreview(items) {
     const preview = document.createElement('div');
     preview.className = 'foldy-clear-unused-preview';
@@ -189,7 +191,10 @@ export function createFoldyDataCleanup({
     getPresetManager,
     currentLorebookNames,
     lorebookOwnerForName,
+    promptOwnerKeyForName,
     regexOwnerKey,
+    regexOwnerKeyForScopedAvatar,
+    regexOwnerKeyForPresetName,
     regexTypes,
     getCharacters,
     getWorldNames,
@@ -200,18 +205,26 @@ export function createFoldyDataCleanup({
         return (manager?.getAllPresets?.() || []).map(name => `${apiId}:${name}`);
     }
 
+    function promptOwnersForApi(apiId) {
+        return presetOwnersForApi(apiId).flatMap(owner => {
+            const name = owner.slice(`${apiId}:`.length);
+            return [owner, promptOwnerKeyForName(name)];
+        });
+    }
+
     function liveFoldyOwners() {
         const state = settings();
-        const promptOwners = new Set(presetOwnersForApi('openai'));
+        const promptOwners = new Set(promptOwnersForApi('openai'));
         const loreOwners = new Set(currentLorebookNames().flatMap((name, index) => [lorebookOwnerForName(name), name, `index:${index}`]));
         const regexLayoutOwners = {
             global: new Set(['global']),
             scoped: new Set([
                 'scoped:none',
+                regexOwnerKeyForScopedAvatar('none'),
                 ...(getCharacters() || [])
                     .map(character => character?.avatar)
                     .filter(Boolean)
-                    .map(avatar => `scoped:${avatar}`),
+                    .flatMap(avatar => [`scoped:${avatar}`, regexOwnerKeyForScopedAvatar(avatar)]),
             ]),
             preset: new Set(),
         };
@@ -227,6 +240,8 @@ export function createFoldyDataCleanup({
             for (const apiId of apiIds) {
                 for (const owner of presetOwnersForApi(apiId)) {
                     regexLayoutOwners.preset.add(`preset:${owner}`);
+                    const name = owner.slice(`${apiId}:`.length);
+                    regexLayoutOwners.preset.add(regexOwnerKeyForPresetName(apiId, name));
                 }
             }
         });
@@ -301,6 +316,17 @@ export function createFoldyDataCleanup({
 
     function ownerDisplayName(owner) {
         const value = String(owner || '');
+        try {
+            const parts = JSON.parse(value);
+            if (Array.isArray(parts)) {
+                if (parts[0] === 'name') return parts[1] || value;
+                if (parts[0] === 'scoped') return parts[1] || 'None selected';
+                if (parts[0] === 'preset') return parts[2] || parts[1] || value;
+                return parts.at(-1) || value;
+            }
+        } catch {
+            // Older saved owners use colon-separated keys below.
+        }
         if (value.startsWith('name:')) return value.slice(5);
         if (/^index:\d+$/.test(value)) return getWorldNames()?.[Number(value.slice(6))] || value;
         if (value.startsWith('scoped:')) return value.slice(7) || 'None selected';
@@ -314,6 +340,12 @@ export function createFoldyDataCleanup({
 
     function isRegexOwnerForType(typeKey, owner) {
         const value = String(owner || '');
+        try {
+            const parts = JSON.parse(value);
+            if (Array.isArray(parts)) return parts[0] === typeKey;
+        } catch {
+            // Older saved owners use colon-separated keys below.
+        }
         if (typeKey === 'global') return value === 'global';
         if (typeKey === 'scoped') return value.startsWith('scoped:');
         if (typeKey === 'preset') return value.startsWith('preset:');
@@ -333,7 +365,7 @@ export function createFoldyDataCleanup({
         const live = liveFoldyOwners();
         const items = [];
         const addItem = item => {
-            if (!items.some(value => value.kind === item.kind && value.owner === item.owner && value.typeKey === item.typeKey)) {
+            if (!items.some(value => value.kind === item.kind && value.owner === item.owner && value.typeKey === item.typeKey && value.folderId === item.folderId)) {
                 items.push(item);
             }
         };
@@ -361,14 +393,18 @@ export function createFoldyDataCleanup({
         if (scope === 'all' || scope === 'regex') {
             for (const typeKey of Object.keys(regexTypes)) {
                 for (const owner of Object.keys(state.layouts.regex?.[typeKey] || {})) {
-                    if (!live.regexLayouts[typeKey].has(owner) || !hasStoredFolders(state.layouts.regex[typeKey][owner])) continue;
-                    addItem({
-                        kind: 'regex',
-                        typeKey,
-                        title: `정규식 ${regexTypes[typeKey].label}`,
-                        owner,
-                        label: ownerDisplayName(owner),
-                    });
+                    const layout = state.layouts.regex[typeKey][owner];
+                    if (!live.regexLayouts[typeKey].has(owner) || !hasStoredFolders(layout)) continue;
+                    for (const folder of layout.folders) {
+                        addItem({
+                            kind: 'regex',
+                            typeKey,
+                            owner,
+                            folderId: folder.id,
+                            title: '정규식',
+                            label: `${regexTypes[typeKey].label}: ${folder.name}`,
+                        });
+                    }
                 }
             }
         }
@@ -388,8 +424,21 @@ export function createFoldyDataCleanup({
                     delete state.collapsed.lore[owner];
                 }
             } else if (item.kind === 'regex') {
-                delete state.layouts.regex?.[item.typeKey]?.[item.owner];
-                delete state.collapsed.regex[item.owner];
+                const layout = state.layouts.regex?.[item.typeKey]?.[item.owner];
+                if (!layout || !item.folderId) continue;
+                const nextLayout = removeFolder(layout, item.folderId);
+                const layoutWithoutFolder = nextLayout === layout
+                    ? { ...layout, folders: layout.folders.filter(folder => folder.id !== item.folderId) }
+                    : nextLayout;
+                if (layoutWithoutFolder.folders.length) {
+                    state.layouts.regex[item.typeKey][item.owner] = layoutWithoutFolder;
+                    const collapsed = (state.collapsed.regex[item.owner] || []).filter(id => id !== item.folderId);
+                    if (collapsed.length) state.collapsed.regex[item.owner] = collapsed;
+                    else delete state.collapsed.regex[item.owner];
+                } else {
+                    delete state.layouts.regex[item.typeKey][item.owner];
+                    delete state.collapsed.regex[item.owner];
+                }
             }
         }
     }

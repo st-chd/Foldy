@@ -420,7 +420,16 @@ const foldyDataCleanup = createFoldyDataCleanup({
     getPresetManager,
     currentLorebookNames,
     lorebookOwnerForName,
+    promptOwnerKeyForName,
     regexOwnerKey,
+    regexOwnerKeyForScopedAvatar: avatar => {
+        const state = settings();
+        return migrateFoldyOwnerKey(state.layouts.regex.scoped, state.collapsed.regex, 'scoped', avatar || 'none');
+    },
+    regexOwnerKeyForPresetName: (apiId, name) => {
+        const state = settings();
+        return migrateFoldyOwnerKey(state.layouts.regex.preset, state.collapsed.regex, 'preset', apiId, name);
+    },
     regexTypes: REGEX_TYPES,
     getCharacters: () => characters,
     getWorldNames: () => world_names,
@@ -1031,6 +1040,7 @@ const {
     saveScriptsByType,
     getCurrentChatId,
     reloadCurrentChat,
+    refreshRegexScripts: () => eventSource.emit(event_types.CHAT_CHANGED),
     enhanceRegexLists: () => enhanceRegexLists(),
     requestBundleExportMode,
     downloadJson,

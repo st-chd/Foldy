@@ -462,6 +462,7 @@ export function createRegexBundleActions({
     saveScriptsByType,
     getCurrentChatId,
     reloadCurrentChat,
+    refreshRegexScripts,
     enhanceRegexLists,
     requestBundleExportMode,
     downloadJson,
@@ -658,10 +659,8 @@ export function createRegexBundleActions({
         saveSettingsDebounced();
         const orderedScripts = orderItemsByLayout(layout, [...scriptsById.values()]);
         await saveScriptsByType(orderedScripts, type);
+        await refreshRegexScripts();
         if (getCurrentChatId()) await reloadCurrentChat();
-        // SillyTavern keeps its list renderer private. The imported scripts
-        // are saved immediately; Foldy re-renders its existing rows without
-        // requiring a non-public host export or a host-file modification.
         enhanceRegexLists();
         renameTracker.notify();
         toastr.success('정규식 번들을 불러왔습니다.');
