@@ -260,7 +260,24 @@ export function createLorebookIntegration({
                 if (query && !shownItems.length) return null;
                 const deferCollapsedItems = !query && collapsed.has(folder.id);
                 const state = enabledState(folder.items.map(id => !data.entries[id]?.disable));
-                const folderElement = createFolderElement(folder, {
+                let folderElement;
+                let items;
+                let deferredItemsPending = false;
+                let deferredItemsRendered = !deferCollapsedItems;
+                const renderDeferredItems = async () => {
+                    if (deferredItemsPending || deferredItemsRendered) return;
+                    deferredItemsPending = true;
+                    try {
+                        if (rerenderIfLoreContextChanged()) return;
+                        const blocks = await Promise.all(shownItems.map(id => renderEntryBlock(id)));
+                        if (rerenderIfLoreContextChanged() || !folderElement.isConnected) return;
+                        blocks.filter(Boolean).forEach(element => items.append(element));
+                        deferredItemsRendered = true;
+                    } finally {
+                        deferredItemsPending = false;
+                    }
+                };
+                folderElement = createFolderElement(folder, {
                     kind: 'lore',
                     owner,
                     collapsed,
@@ -273,7 +290,9 @@ export function createLorebookIntegration({
                     },
                     extraButtons: createLoreBulkSettingButtons(name, data, layout, folder, rerenderIfLoreContextChanged),
                     onCollapseChange: (id, isCollapsed) => {
-                        if (!isCollapsed && id === folder.id && deferCollapsedItems) rerender();
+                        if (!isCollapsed && id === folder.id && deferCollapsedItems) {
+                            void withErrorToast('로어북 폴더 펼치기', renderDeferredItems);
+                        }
                     },
                     onBulkMove: async id => {
                         const labels = new Map(allEntries.map(entry => [String(entry.uid), loreEntryLabel(entry)]));
@@ -287,7 +306,7 @@ export function createLorebookIntegration({
                     },
                 });
                 if (query) folderElement.classList.remove('is-collapsed');
-                const items = folderElement.querySelector('.foldy-folder-items');
+                items = folderElement.querySelector('.foldy-folder-items');
                 const itemIdsToRender = loreFolderItemIdsToRender(folder, visibleIds, { query: Boolean(query), collapsed: collapsed.has(folder.id) });
                 const blocks = await Promise.all(itemIdsToRender.map(id => renderEntryBlock(id)));
                 blocks.filter(Boolean).forEach(element => items.append(element));

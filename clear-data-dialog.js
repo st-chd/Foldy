@@ -33,7 +33,7 @@ function createUnusedDataPreview(items) {
     return preview;
 }
 
-function createActiveFolderSelection(items) {
+function createActiveFolderSelection(items, { showCategoryPrefix = false } = {}) {
     const group = document.createElement('div');
     group.className = 'foldy-clear-active foldy-create-items';
     const list = document.createElement('div');
@@ -53,7 +53,7 @@ function createActiveFolderSelection(items) {
             checkbox.type = 'checkbox';
             checkbox.value = String(index);
             const text = document.createElement('span');
-            text.textContent = `${item.title}: ${item.label}`;
+            text.textContent = showCategoryPrefix ? `${item.title}: ${item.label}` : item.label;
             text.title = text.textContent;
             appendSelectionRow(label, checkbox, text);
             list.append(label);
@@ -133,7 +133,7 @@ export function createClearDataDialog({
         const renderDetails = () => {
             details.innerHTML = '';
             if (activeRadio.checked) {
-                details.append(createActiveFolderSelection(activeItems));
+                details.append(createActiveFolderSelection(activeItems, { showCategoryPrefix: scope === 'all' }));
             } else if (unusedRadio.checked) {
                 details.append(createUnusedDataPreview(unusedItems));
             } else if (allRadio.checked) {
