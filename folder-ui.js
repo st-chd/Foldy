@@ -25,6 +25,14 @@ export function createLabeledIconButton(icon, title, label, className = '') {
     return button;
 }
 
+export function setCollapseButtonState(button, isCollapsed) {
+    button.classList.toggle('fa-chevron-down', !isCollapsed);
+    button.classList.toggle('fa-chevron-right', isCollapsed);
+    const title = isCollapsed ? '폴더 펼치기' : '폴더 접기';
+    button.title = title;
+    button.setAttribute('aria-label', title);
+}
+
 export function bindAction(button, label, handler, {
     withErrorToast,
     preventDefault = true,
@@ -344,13 +352,12 @@ export function createFolderElement(folder, {
 
     if (collapsed.has(folder.id)) {
         element.classList.add('is-collapsed');
-        collapse.classList.replace('fa-chevron-down', 'fa-chevron-right');
+        setCollapseButtonState(collapse, true);
     }
 
     const toggleCollapsed = () => {
         const isCollapsed = element.classList.toggle('is-collapsed');
-        collapse.classList.toggle('fa-chevron-down', !isCollapsed);
-        collapse.classList.toggle('fa-chevron-right', isCollapsed);
+        setCollapseButtonState(collapse, isCollapsed);
         const values = ownerCollapsed(kind, owner);
         isCollapsed ? values.add(folder.id) : values.delete(folder.id);
         saveCollapsed(kind, owner, values);

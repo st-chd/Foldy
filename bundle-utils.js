@@ -171,8 +171,30 @@ export function createBundleActions({
     isLoreOriginalDataCompatible,
     maxBundleBytes = DEFAULT_MAX_BUNDLE_BYTES,
 }) {
-    function downloadJson(value, filename) {
+    async function downloadJson(value, filename) {
         const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+
+        if (typeof globalThis.showSaveFilePicker === 'function') {
+            try {
+                const handle = await globalThis.showSaveFilePicker({
+                    suggestedName: filename,
+                    types: [{
+                        description: 'JSON file',
+                        accept: { 'application/json': ['.json'] },
+                    }],
+                });
+                const writable = await handle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                return true;
+            } catch (error) {
+                if (error?.name === 'AbortError') return false;
+                debugLog('번들 파일 저장 실패', error);
+                toastr.error('번들 파일을 저장하지 못했습니다. 원본 데이터는 변경하지 않았습니다.');
+                return false;
+            }
+        }
+
         const url = URL.createObjectURL(blob);
         try {
             const anchor = document.createElement('a');
@@ -184,6 +206,8 @@ export function createBundleActions({
         } finally {
             setTimeout(() => URL.revokeObjectURL(url), 0);
         }
+
+        return true;
     }
 
     async function readJsonFile() {

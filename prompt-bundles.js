@@ -1,5 +1,4 @@
 import {
-    backupFilename,
     bundleEnvelope,
     bundleFilename,
     cloneJson,
@@ -195,25 +194,6 @@ export function createPromptBundleActions({
     assertPromptBundleShape,
     confirmText,
 }) {
-    function backupExistingPromptPreset(presetName, manager) {
-        const owner = promptOwnerKeyForName(presetName);
-        const presetSettings = currentPromptPresetSettings(presetName);
-        const prompts = Array.isArray(presetSettings?.prompts) ? presetSettings.prompts : [];
-        const ids = prompts.map(prompt => String(prompt?.identifier || '')).filter(Boolean);
-        const layout = normalizeLayout(settings().layouts.prompts[owner], ids, { preserveUnrootedFolders: false });
-        downloadJson({
-            ...bundleEnvelope('prompts'),
-            owner: presetName,
-            presetName,
-            backup: true,
-            createdAt: new Date().toISOString(),
-            layout: cloneJson(layout),
-            presetSettings: cloneJson(presetSettings),
-            prompts: cloneJson(prompts),
-            promptOrder: cloneJson(presetSettings?.prompt_order || []),
-        }, backupFilename(`${presetName}-prompts`));
-    }
-
     async function requestPromptExportMode() {
         return requestBundleExportMode(
             '프롬프트 번들 내보내기',
@@ -304,14 +284,14 @@ export function createPromptBundleActions({
         if (!mode) return;
 
         if (mode === 'layout') {
-            downloadJson({
+            if (!await downloadJson({
                 ...bundleEnvelope('prompts'),
                 contents: 'layout',
                 owner,
                 presetName,
                 layout: cloneJson(layout),
                 promptRefs: promptLayoutRefs(manager, [...ids]),
-            }, bundleFilename(`${presetName}-folders`));
+            }, bundleFilename(`${presetName}-folders`))) return;
             toastr.success('프롬프트 폴더 구조를 내보냈습니다.');
             return;
         }
@@ -323,7 +303,7 @@ export function createPromptBundleActions({
             .filter(entry => ids.has(String(entry.identifier)))
             .map(cloneJson);
 
-        downloadJson({
+        if (!await downloadJson({
             ...bundleEnvelope('prompts'),
             owner,
             presetName,
@@ -331,7 +311,7 @@ export function createPromptBundleActions({
             layout: cloneJson(layout),
             prompts,
             promptOrder,
-        }, bundleFilename(presetName));
+        }, bundleFilename(presetName))) return;
         toastr.success('프롬프트 번들을 내보냈습니다.');
     }
 
@@ -367,11 +347,9 @@ export function createPromptBundleActions({
             matchedTargetCount: matchedLayoutCount,
         });
         const confirmed = await confirmText('프롬프트 번들 불러오기', exists
-            ? `기존 프롬프트 프리셋 "${presetName}"을 이 번들로 바꿀까요?\n\n기존 프롬프트: ${existingPromptCount}개\n가져올 프롬프트: ${importedPromptCount}개\n\n덮어쓰기 전에 백업 파일을 내려받습니다.\n\n${layoutSummary}\n\n계속할까요?`
+            ? `기존 프롬프트 프리셋 "${presetName}"을 이 번들로 바꿀까요?\n\n기존 프롬프트: ${existingPromptCount}개\n가져올 프롬프트: ${importedPromptCount}개\n\n${layoutSummary}\n\n계속할까요?`
             : `이 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?\n\n가져올 프롬프트: ${importedPromptCount}개\n\n${layoutSummary}`);
         if (!confirmed) return;
-        if (exists) backupExistingPromptPreset(presetName, manager);
-
         const presetSettings = cloneJson(bundle.presetSettings || currentPromptPresetSettings(presetName));
         await presetManager.savePreset(presetName, presetSettings);
         const presetValue = presetManager.findPreset(presetName);
@@ -379,6 +357,7 @@ export function createPromptBundleActions({
         await waitUntilCondition(() => presetManager.getSelectedPresetName() === presetName, 5000, 100);
 
         const importedPrompts = bundle.prompts.filter(prompt => prompt?.identifier);
+        const importedNameIndex = uniqueNameIndex(importedPrompts, prompt => prompt?.name);
         const currentPrompts = exists ? (manager.serviceSettings.prompts || []) : [];
         const promptsById = new Map(currentPrompts
             .filter(prompt => prompt?.identifier)
@@ -388,7 +367,10 @@ export function createPromptBundleActions({
         const idMap = new Map();
         importedPrompts.forEach(prompt => {
             const imported = cloneJson(prompt);
-            const existing = promptsByName.get(nameKey(imported.name));
+            const importedNameKey = nameKey(imported.name);
+            const existing = importedNameIndex.ambiguous.has(importedNameKey)
+                ? null
+                : promptsByName.get(importedNameKey);
             const sourceId = String(imported.identifier);
             if (existing) {
                 imported.identifier = existing.identifier;

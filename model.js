@@ -32,25 +32,27 @@ export function flattenLayout(layout) {
 }
 
 export function orderItemsByLayout(layout, items, getId = item => item?.id) {
-    const byId = new Map(items
-        .map(item => [String(getId(item) ?? ''), item])
-        .filter(([id]) => id));
-    const used = new Set();
+    const byId = new Map();
+    items.forEach((item, index) => {
+        const id = String(getId(item) ?? '');
+        if (!id) return;
+        if (!byId.has(id)) byId.set(id, []);
+        byId.get(id).push({ item, index });
+    });
+    const usedIndices = new Set();
     const ordered = [];
 
     for (const id of flattenLayout(layout)) {
-        const item = byId.get(String(id));
-        if (!item || used.has(String(id))) continue;
-        ordered.push(item);
-        used.add(String(id));
+        const entry = byId.get(String(id))?.find(value => !usedIndices.has(value.index));
+        if (!entry) continue;
+        ordered.push(entry.item);
+        usedIndices.add(entry.index);
     }
 
-    for (const item of items) {
-        const id = String(getId(item) ?? '');
-        if (!id || used.has(id)) continue;
+    items.forEach((item, index) => {
+        if (usedIndices.has(index)) return;
         ordered.push(item);
-        used.add(id);
-    }
+    });
 
     return ordered;
 }
@@ -128,6 +130,16 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         }
     } else {
         folders = folders.filter(folder => placedFolders.has(folder.id));
+    }
+
+    // Only items present in the returned layout count as placed. In particular,
+    // dropping an orphan folder must release its items so they can return to root.
+    placedItems.clear();
+    for (const folder of folders) {
+        for (const itemId of folder.items) placedItems.add(itemId);
+    }
+    for (const node of root) {
+        if (node.type === 'item') placedItems.add(node.id);
     }
 
     const ownerIndices = new Map();

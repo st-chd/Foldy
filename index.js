@@ -30,7 +30,11 @@ import {
     setLoreFolderEntriesEnabled,
     syncLoreOriginalEntry,
 } from './lorebook-integration.js';
-import { createRegexBundleActions, createRegexIntegration } from './regex-integration.js';
+import {
+    createRegexBundleActions,
+    createRegexIntegration,
+    saveRegexScriptsWithLatest,
+} from './regex-integration.js';
 import {
     createWorldInfoEntry,
     deleteWIOriginalDataValue,
@@ -1014,6 +1018,13 @@ function readRegexLayout(typeKey) {
     return { owner, layout: normalizeLayout(raw, regexItemIds(typeKey)) };
 }
 
+async function saveRegexScriptsSafely(scripts, type) {
+    await saveRegexScriptsWithLatest(scripts, type, {
+        getScriptsByType,
+        saveScriptsByType,
+    });
+}
+
 async function persistRegexLayout(typeKey, owner, layout, reorder = true) {
     settings().layouts.regex[typeKey][owner] = layout;
     saveSettingsDebounced();
@@ -1021,7 +1032,7 @@ async function persistRegexLayout(typeKey, owner, layout, reorder = true) {
     const type = REGEX_TYPES[typeKey].scriptType;
     const scripts = getScriptsByType(type);
     const reordered = orderItemsByLayout(layout, scripts);
-    await saveScriptsByType(reordered, type);
+    await saveRegexScriptsSafely(reordered, type);
 }
 
 const {
@@ -1037,7 +1048,7 @@ const {
     readRegexLayout,
     persistRegexLayout,
     getScriptsByType,
-    saveScriptsByType,
+    saveScriptsByType: saveRegexScriptsSafely,
     getCurrentChatId,
     reloadCurrentChat,
     refreshRegexScripts: () => eventSource.emit(event_types.CHAT_CHANGED),
@@ -1062,7 +1073,7 @@ const {
     regexOwnerKey,
     regexItemIds,
     getScriptsByType,
-    saveScriptsByType,
+    saveScriptsByType: saveRegexScriptsSafely,
     getCurrentChatId,
     reloadCurrentChat,
     saveSettingsDebounced,

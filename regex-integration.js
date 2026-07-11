@@ -5,7 +5,6 @@ import {
 } from './folder-ui.js';
 import { setupFolderSortables } from './folder-sortables.js';
 import {
-    backupFilename,
     bundleEnvelope,
     bundleFilename,
     cloneJson,
@@ -29,6 +28,22 @@ import {
     removeFolder,
     remapImportedLayout,
 } from './model.js';
+
+export async function saveRegexScriptsWithLatest(scripts, type, {
+    getScriptsByType,
+    saveScriptsByType,
+}) {
+    let pending = scripts;
+    while (true) {
+        const savedSnapshot = JSON.stringify(pending);
+        await saveScriptsByType(pending, type);
+
+        const latest = getScriptsByType(type);
+        if (latest === pending && JSON.stringify(latest) === savedSnapshot) return;
+        pending = latest;
+    }
+}
+
 export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
     const visibleIds = new Set([...list.querySelectorAll('.regex-script-label')]
         .map(element => element.id)
@@ -489,22 +504,6 @@ export function createRegexBundleActions({
     assertRegexBundleShape,
     confirmText,
 }) {
-    function backupExistingRegex(typeKey) {
-        const type = regexTypes[typeKey].scriptType;
-        const owner = regexOwnerKey(typeKey);
-        const scripts = getScriptsByType(type);
-        const layout = normalizeLayout(settings().layouts.regex[typeKey][owner], regexItemIds(typeKey), { preserveUnrootedFolders: false });
-        downloadJson({
-            ...bundleEnvelope('regex'),
-            owner,
-            typeKey,
-            backup: true,
-            createdAt: new Date().toISOString(),
-            layout: cloneJson(layout),
-            scripts: cloneJson(scripts),
-        }, backupFilename(`${regexExportName(typeKey)}-regex`));
-    }
-
     async function requestRegexExportMode(typeKey) {
         const label = regexTypes[typeKey]?.label || typeKey;
         return requestBundleExportMode(
@@ -584,25 +583,25 @@ export function createRegexBundleActions({
         if (!mode) return;
 
         if (mode === 'layout') {
-            downloadJson({
+            if (!await downloadJson({
                 ...bundleEnvelope('regex'),
                 contents: 'layout',
                 typeKey,
                 owner,
                 layout: cloneJson(layout),
                 scriptRefs: regexLayoutRefs(scripts, [...ids]),
-            }, bundleFilename(`${regexExportName(typeKey)}-folders`));
+            }, bundleFilename(`${regexExportName(typeKey)}-folders`))) return;
             toastr.success('정규식 폴더 구조를 내보냈습니다.');
             return;
         }
 
-        downloadJson({
+        if (!await downloadJson({
             ...bundleEnvelope('regex'),
             typeKey,
             owner,
             layout: cloneJson(layout),
             scripts,
-        }, bundleFilename(regexExportName(typeKey)));
+        }, bundleFilename(regexExportName(typeKey)))) return;
         toastr.success('정규식 번들을 내보냈습니다.');
     }
 
@@ -621,9 +620,39 @@ export function createRegexBundleActions({
         }
         const label = regexTypes[typeKey].label;
         const currentScriptsForConfirm = getScriptsByType(regexTypes[typeKey].scriptType);
-        const scriptsByUniqueName = uniqueNameMap(currentScriptsForConfirm, script => script?.scriptName);
-        const replacedCount = bundle.scripts.filter(script => scriptsByUniqueName.has(nameKey(script?.scriptName))).length;
-        const importedScriptCount = bundle.scripts.filter(Boolean).length;
+        const importedScripts = bundle.scripts.filter(Boolean);
+        const importedNameIndex = uniqueNameIndex(importedScripts, script => script?.scriptName);
+        const importedIdIndex = uniqueNameIndex(
+            importedScripts.filter(script => script?.id != null),
+            script => String(script.id),
+        );
+        const currentIdIndexForConfirm = uniqueNameIndex(
+            currentScriptsForConfirm.filter(script => script?.id != null),
+            script => String(script.id),
+        );
+        const currentNameMapForConfirm = uniqueNameMap(currentScriptsForConfirm, script => script?.scriptName);
+        const findExisting = (imported, currentIdIndex, currentNameMap) => {
+            const importedIdKey = imported?.id == null ? '' : nameKey(String(imported.id));
+            if (importedIdKey && !importedIdIndex.ambiguous.has(importedIdKey)) {
+                const direct = currentIdIndex.unique.get(importedIdKey);
+                if (direct) return direct;
+            }
+            const importedNameKey = nameKey(imported?.scriptName);
+            return importedNameKey && !importedNameIndex.ambiguous.has(importedNameKey)
+                ? currentNameMap.get(importedNameKey)
+                : null;
+        };
+        const replacedScripts = new Map();
+        for (const imported of importedScripts) {
+            const existing = findExisting(imported, currentIdIndexForConfirm, currentNameMapForConfirm);
+            if (existing?.id != null) replacedScripts.set(String(existing.id), existing);
+        }
+        const replacedNames = [...replacedScripts.values()].map(script => {
+            const name = String(script.scriptName || '').trim();
+            return name || `[이름 없음] (ID: ${script.id})`;
+        });
+        const replacedCount = replacedNames.length;
+        const importedScriptCount = importedScripts.length;
         const sourceLayoutIds = new Set(flattenLayout(bundle.layout));
         const importedScriptIds = new Set(bundle.scripts
             .filter(script => script?.id)
@@ -638,24 +667,28 @@ export function createRegexBundleActions({
             matchedTargetCount: matchedLayoutCount,
         });
         const confirmed = await confirmText('정규식 번들 불러오기', replacedCount
-            ? `이름이 같은 기존 ${label} 정규식 스크립트 ${replacedCount}개를 바꾸고 나머지를 추가할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n교체될 스크립트: ${replacedCount}개\n\n덮어쓰기 전에 백업 파일을 내려받습니다.\n\n${layoutSummary}\n\n계속할까요?`
+            ? `ID 또는 이름이 같은 기존 ${label} 정규식 스크립트 ${replacedCount}개를 바꾸고 나머지를 추가할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n교체될 스크립트: ${replacedCount}개\n교체될 항목:\n${replacedNames.map(name => `- ${name}`).join('\n')}\n\n${layoutSummary}\n\n계속할까요?`
             : `이 번들을 현재 ${label} 정규식 목록에 추가하고 폴더 구조를 적용할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n\n${layoutSummary}`);
         if (!confirmed) return;
-        if (replacedCount) backupExistingRegex(typeKey);
-
         const type = regexTypes[typeKey].scriptType;
         const owner = regexOwnerKey(typeKey);
         const currentScripts = getScriptsByType(type);
-        const scriptsById = new Map(currentScripts
-            .filter(script => script?.id)
-            .map(script => [String(script.id), script]));
+        const mergedScripts = [...currentScripts];
         const scriptsByName = uniqueNameMap(currentScripts, script => script?.scriptName);
-        const usedIds = new Set(scriptsById.keys());
+        const usedIds = new Set(currentScripts
+            .filter(script => script?.id != null)
+            .map(script => String(script.id)));
+        const currentIdIndex = uniqueNameIndex(
+            currentScripts.filter(script => script?.id != null),
+            script => String(script.id),
+        );
         const idMap = new Map();
-        bundle.scripts.filter(script => script).forEach(script => {
+        importedScripts.forEach(script => {
             const imported = cloneJson(script);
-            const existing = scriptsByName.get(nameKey(imported.scriptName));
-            const sourceId = String(imported.id || generateUUID());
+            const existing = findExisting(imported, currentIdIndex, scriptsByName);
+            const sourceId = imported.id == null || String(imported.id) === ''
+                ? generateUUID()
+                : String(imported.id);
             if (existing) {
                 imported.id = existing.id;
             } else if (!imported.id || usedIds.has(String(imported.id))) {
@@ -664,7 +697,9 @@ export function createRegexBundleActions({
             const targetId = String(imported.id);
             idMap.set(sourceId, targetId);
             usedIds.add(targetId);
-            scriptsById.set(targetId, imported);
+            const existingIndex = existing ? mergedScripts.indexOf(existing) : -1;
+            if (existingIndex >= 0) mergedScripts[existingIndex] = imported;
+            else mergedScripts.push(imported);
         });
 
         const currentIds = currentScripts.map(script => String(script.id)).filter(Boolean);
@@ -675,7 +710,7 @@ export function createRegexBundleActions({
         const layout = mergeImportedLayout(currentLayout, importedLayout, allIds, renameTracker.options);
         settings().layouts.regex[typeKey][owner] = layout;
         saveSettingsDebounced();
-        const orderedScripts = orderItemsByLayout(layout, [...scriptsById.values()]);
+        const orderedScripts = orderItemsByLayout(layout, mergedScripts);
         await saveScriptsByType(orderedScripts, type);
         await refreshRegexScripts();
         if (getCurrentChatId()) await reloadCurrentChat();

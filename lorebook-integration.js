@@ -11,7 +11,6 @@ import {
     setupFolderSortables,
 } from './folder-sortables.js';
 import {
-    backupFilename,
     bundleEnvelope,
     bundleFilename,
     cloneJson,
@@ -691,21 +690,6 @@ export function createLorebookBundleActions({
     assertLorebookBundleShape,
     confirmText,
 }) {
-    async function backupExistingLorebook(name) {
-        const data = await loadWorldInfo(name);
-        if (!data?.entries) return;
-        const owner = lorebookOwnerForName(name);
-        const layout = normalizeLayout(settings().layouts.lorebooks[owner], loreEntryIds(data), { preserveUnrootedFolders: false });
-        downloadJson({
-            ...bundleEnvelope('lorebooks'),
-            owner: name,
-            backup: true,
-            createdAt: new Date().toISOString(),
-            layout: cloneJson(layout),
-            data: cloneJson(data),
-        }, backupFilename(`${name}-lorebook`));
-    }
-
     async function requestLorebookExportMode() {
         return requestBundleExportMode(
             '로어북 내보내기',
@@ -806,23 +790,23 @@ export function createLorebookBundleActions({
         if (!mode) return;
 
         if (mode === 'layout') {
-            downloadJson({
+            if (!await downloadJson({
                 ...bundleEnvelope('lorebooks'),
                 contents: 'layout',
                 owner: name,
                 layout: cloneJson(layout),
                 entryRefs: loreLayoutRefs(data, [...ids]),
-            }, bundleFilename(`${name}-folders`));
+            }, bundleFilename(`${name}-folders`))) return;
             toastr.success('로어북 폴더 구조를 내보냈습니다.');
             return;
         }
 
-        downloadJson({
+        if (!await downloadJson({
             ...bundleEnvelope('lorebooks'),
             owner: name,
             layout: cloneJson(layout),
             data: cloneJson(data),
-        }, bundleFilename(name));
+        }, bundleFilename(name))) return;
         toastr.success('로어북 번들을 내보냈습니다.');
     }
 
@@ -857,11 +841,9 @@ export function createLorebookBundleActions({
             matchedTargetCount: matchedLayoutCount,
         });
         const confirmed = await confirmText('로어북 번들 불러오기', exists
-            ? `기존 로어북 "${name}"을 이 번들로 바꿀까요?\n\n기존 항목: ${existingEntryCount}개\n가져올 항목: ${importedEntryCount}개\n\n덮어쓰기 전에 백업 파일을 내려받습니다.\n\n${layoutSummary}\n\n계속할까요?`
+            ? `기존 로어북 "${name}"을 이 번들로 바꿀까요?\n\n기존 항목: ${existingEntryCount}개\n가져올 항목: ${importedEntryCount}개\n\n${layoutSummary}\n\n계속할까요?`
             : `이 번들로 새 로어북 "${name}"을 만들까요?\n\n가져올 항목: ${importedEntryCount}개\n\n${layoutSummary}`);
         if (!confirmed) return;
-        if (exists) await backupExistingLorebook(name);
-
         await enqueueLorebookWrite(name, async () => {
             const data = cloneJson(bundle.data);
             const layout = normalizeLayout(bundle.layout, loreEntryIds(data));
