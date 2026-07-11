@@ -90,9 +90,9 @@ const REGEX_TYPES = {
     },
 };
 const REGEX_FOLDER_TARGETS = [
-    { key: 'global', label: 'Global' },
-    { key: 'preset', label: 'Preset' },
-    { key: 'scoped', label: 'Scoped' },
+    { key: 'global', label: '전역' },
+    { key: 'preset', label: '프리셋' },
+    { key: 'scoped', label: '범위 지정' },
 ];
 
 let applyLorebookFeatureState = () => {};

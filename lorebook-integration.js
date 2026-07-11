@@ -140,6 +140,7 @@ export function createLorebookIntegration({
             moveItemToFolder: moveItemInLayout,
             debugLog,
             domainLabel: '로어북',
+            positionPlaceholderInFolder: true,
         });
     }
 

@@ -34,6 +34,7 @@ export function setupFolderSortables({
     debugLog,
     domainLabel,
     appendPlaceholderToFolder = false,
+    positionPlaceholderInFolder = false,
     dataKey = null,
 }) {
     if (!list) return;
@@ -42,6 +43,7 @@ export function setupFolderSortables({
     const $list = $(list);
     let lastPointer = null;
     let lastFolderElement = null;
+    let lastFolderInsertBefore = null;
     let draggingItemIntoFolder = false;
     let draggingFolderId = null;
     let pointerFrame = 0;
@@ -53,6 +55,7 @@ export function setupFolderSortables({
         pointerUi = null;
         lastPointer = null;
         lastFolderElement = null;
+        lastFolderInsertBefore = null;
         draggingItemIntoFolder = false;
         draggingFolderId = null;
         list.classList.remove('foldy-dropping-into-folder');
@@ -62,6 +65,7 @@ export function setupFolderSortables({
     const rememberPointer = (event, ui) => {
         if (!draggingItemIntoFolder) {
             lastFolderElement = null;
+            lastFolderInsertBefore = null;
             list.classList.remove('foldy-dropping-into-folder');
             list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
             return;
@@ -81,7 +85,22 @@ export function setupFolderSortables({
             pointedFolder?.classList.add('foldy-drop-target');
             const placeholder = pointerUi?.placeholder?.[0];
             const items = pointedFolder?.querySelector?.(folderItemsSelector);
-            if (appendPlaceholderToFolder && placeholder && items && !items.contains(placeholder)) items.append(placeholder);
+            if (positionPlaceholderInFolder && items) {
+                const draggedItem = pointerUi?.item?.[0];
+                lastFolderInsertBefore = [...items.children]
+                    .filter(element => element !== placeholder && element !== draggedItem)
+                    .find(element => {
+                        const rect = element.getBoundingClientRect?.();
+                        return rect?.height > 0 && lastPointer.y < rect.top + rect.height / 2;
+                    }) ?? null;
+                if (placeholder) {
+                    if (lastFolderInsertBefore) items.insertBefore(placeholder, lastFolderInsertBefore);
+                    else items.append(placeholder);
+                }
+            } else {
+                lastFolderInsertBefore = null;
+                if (appendPlaceholderToFolder && placeholder && items && !items.contains(placeholder)) items.append(placeholder);
+            }
         });
     };
 
@@ -92,9 +111,18 @@ export function setupFolderSortables({
             .find(Boolean);
         const items = folderElement?.querySelector?.(folderItemsSelector);
         if (!items || items.contains(item)) return null;
-        items.append(item);
+        const insertBefore = positionPlaceholderInFolder
+            && lastFolderInsertBefore
+            && items.contains(lastFolderInsertBefore)
+            ? lastFolderInsertBefore
+            : null;
+        if (insertBefore) items.insertBefore(item, insertBefore);
+        else items.append(item);
         updateFolderCount(folderElement);
-        return folderElement.dataset.foldyId || null;
+        return {
+            folderId: folderElement.dataset.foldyId || null,
+            preserveDomPosition: Boolean(insertBefore),
+        };
     };
 
     const afterSort = task => {
@@ -126,8 +154,10 @@ export function setupFolderSortables({
                 rerender();
                 return;
             }
-            const folderId = moveIntoPointedFolder(item);
-            if (folderId && moveItemToFolder) await moveItemToFolder(String(itemIdFromElement(item)), folderId);
+            const move = moveIntoPointedFolder(item);
+            if (move?.folderId && moveItemToFolder && !move.preserveDomPosition) {
+                await moveItemToFolder(String(itemIdFromElement(item)), move.folderId);
+            }
             else await saveFromDom(saveOptionsFromItem?.(item, { nested }) || {});
         } finally {
             setSorting(false);

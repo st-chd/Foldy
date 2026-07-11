@@ -6,6 +6,10 @@
     margin: 0.35em 0;
 }
 
+#rm_extensions_block.openDrawer:has(.foldy-toolbar[data-foldy-toolbar^="regex-"]) {
+    z-index: 3001;
+}
+
 .foldy-create-folder,
 .foldy-lore-create,
 .foldy-bundle-button,

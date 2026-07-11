@@ -96,6 +96,7 @@ export function createRegexIntegration({
     const regexRenderGate = createRenderGate();
     let sortingRegex = false;
     const currentRegexLayouts = { global: null, scoped: null, preset: null };
+    const pendingRegexMoves = new Set();
 
     async function setRegexFolderEnabled(typeKey, layout, folderId, enabled) {
         const folder = layout.folders.find(value => value.id === folderId);
@@ -255,6 +256,25 @@ export function createRegexIntegration({
             rerender();
             return true;
         };
+        const persistMovedLayout = async movedLayout => {
+            const moveOwner = `${typeKey}:${owner}`;
+            if (pendingRegexMoves.has(moveOwner)) {
+                toastr.info('정규식 이동을 저장 중입니다. 잠시 후 다시 시도해 주세요.');
+                return;
+            }
+            pendingRegexMoves.add(moveOwner);
+            try {
+                const pendingSave = persistRegexLayout(typeKey, owner, movedLayout);
+                rerender();
+                await pendingSave;
+            } catch (error) {
+                await persistRegexLayout(typeKey, owner, layout, false);
+                rerender();
+                throw error;
+            } finally {
+                pendingRegexMoves.delete(moveOwner);
+            }
+        };
         const onEdit = async id => {
             const folder = layout.folders.find(value => value.id === id);
             if (!folder) return;
@@ -287,8 +307,7 @@ export function createRegexIntegration({
                         itemId: node.id,
                         onMove: async movedLayout => {
                             if (rerenderIfRegexContextChanged()) return;
-                            await persistRegexLayout(typeKey, owner, movedLayout);
-                            rerender();
+                            await persistMovedLayout(movedLayout);
                         },
                     });
                     list.append(item);
@@ -335,8 +354,7 @@ export function createRegexIntegration({
                         itemId: id,
                         onMove: async movedLayout => {
                             if (rerenderIfRegexContextChanged()) return;
-                            await persistRegexLayout(typeKey, owner, movedLayout);
-                            rerender();
+                            await persistMovedLayout(movedLayout);
                         },
                     });
                     items.append(item);

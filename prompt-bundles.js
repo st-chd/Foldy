@@ -165,6 +165,7 @@ export function createPromptSortables({
             debugLog,
             domainLabel: '프롬프트',
             appendPlaceholderToFolder: true,
+            positionPlaceholderInFolder: true,
         });
     }
 
