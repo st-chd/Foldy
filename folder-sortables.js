@@ -1,5 +1,30 @@
 import { updateFolderCount } from './folder-ui.js';
 
+export function copyFormControlState(source, clone) {
+    const sourceControls = [...(source?.querySelectorAll?.('input, select, textarea') || [])];
+    const cloneControls = [...(clone?.querySelectorAll?.('input, select, textarea') || [])];
+    sourceControls.forEach((control, index) => {
+        const copy = cloneControls[index];
+        if (!copy) return;
+        if (String(control.tagName).toUpperCase() === 'SELECT') {
+            [...(control.options || [])].forEach((option, optionIndex) => {
+                if (copy.options?.[optionIndex]) copy.options[optionIndex].selected = option.selected;
+            });
+            copy.selectedIndex = control.selectedIndex;
+        } else {
+            copy.value = control.value;
+            if ('checked' in control) copy.checked = control.checked;
+        }
+    });
+    return clone;
+}
+
+export function cloneSortableHelper(_event, item) {
+    const clone = item.clone();
+    copyFormControlState(item[0], clone[0]);
+    return clone;
+}
+
 export function destroyFolderSortables(list, nestedItemsSelector, { dataKey = null } = {}) {
     if (!list) return;
     const $list = $(list);
@@ -170,7 +195,7 @@ export function setupFolderSortables({
         handle: '.drag-handle',
         items: rootSortableItems,
         placeholder: 'foldy-drop-placeholder',
-        helper: 'clone',
+        helper: cloneSortableHelper,
         appendTo: document.body,
         zIndex: 10000,
         tolerance: 'pointer',
@@ -190,7 +215,7 @@ export function setupFolderSortables({
             items: nestedSortableItems,
             connectWith,
             placeholder: 'foldy-drop-placeholder',
-            helper: 'clone',
+            helper: cloneSortableHelper,
             appendTo: document.body,
             zIndex: 10000,
             tolerance: 'pointer',

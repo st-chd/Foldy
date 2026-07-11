@@ -4,14 +4,22 @@ import {
 } from './folder-ui.js';
 import { createPromptBundleActions, createPromptSortables, promptOrderIds } from './prompt-bundles.js';
 import {
-    flattenLayout,
     layoutWithAddedFolder,
     layoutWithItemsMovedToFolder,
     layoutWithUpdatedFolder,
     normalizeLayout,
+    orderItemsByLayout,
     removeFolder,
     rootItemIds,
 } from './model.js';
+
+export function reconcilePromptOrder(layout, manager) {
+    const order = manager.getPromptOrderForCharacter(manager.activeCharacter);
+    const freshLayout = normalizeLayout(layout, promptOrderIds(manager));
+    const reordered = orderItemsByLayout(freshLayout, order, entry => entry?.identifier);
+    order.splice(0, order.length, ...reordered);
+    return freshLayout;
+}
 
 function setPromptToolbarSummary(toolbar, layout, visibleItemIds = null) {
     if (!toolbar || !layout) return;
@@ -130,12 +138,9 @@ export function createPromptIntegration({
     }
 
     async function persistPromptLayout(owner, layout, manager = promptManager) {
-        const order = manager.getPromptOrderForCharacter(manager.activeCharacter);
-        const byId = new Map(order.map(entry => [String(entry.identifier), entry]));
-        const flattened = flattenLayout(layout);
-        order.splice(0, order.length, ...flattened.map(identifier => byId.get(identifier)).filter(Boolean));
-        settings().layouts.prompts[owner] = layout;
-        currentPromptLayout = layout;
+        const freshLayout = reconcilePromptOrder(layout, manager);
+        settings().layouts.prompts[owner] = freshLayout;
+        currentPromptLayout = freshLayout;
         saveSettingsDebounced();
         await manager.saveServiceSettings();
     }

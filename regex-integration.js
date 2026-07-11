@@ -5,6 +5,7 @@ import {
 } from './folder-ui.js';
 import { setupFolderSortables } from './folder-sortables.js';
 import {
+    bundleImportSummary,
     bundleEnvelope,
     bundleFilename,
     cloneJson,
@@ -647,28 +648,22 @@ export function createRegexBundleActions({
             const existing = findExisting(imported, currentIdIndexForConfirm, currentNameMapForConfirm);
             if (existing?.id != null) replacedScripts.set(String(existing.id), existing);
         }
-        const replacedNames = [...replacedScripts.values()].map(script => {
-            const name = String(script.scriptName || '').trim();
-            return name || `[이름 없음] (ID: ${script.id})`;
-        });
-        const replacedCount = replacedNames.length;
+        const replacedCount = replacedScripts.size;
         const importedScriptCount = importedScripts.length;
         const sourceLayoutIds = new Set(flattenLayout(bundle.layout));
         const importedScriptIds = new Set(bundle.scripts
             .filter(script => script?.id)
             .map(script => String(script.id)));
         const matchedLayoutCount = [...sourceLayoutIds].filter(id => importedScriptIds.has(String(id))).length;
-        const layoutSummary = importedLayoutSummary({
-            currentLabel: '가져올 스크립트',
-            currentOnlyLabel: '폴더 구조에 없는 가져올 스크립트',
-            currentCount: importedScriptCount,
-            sourceCount: sourceLayoutIds.size,
-            matchedSourceCount: matchedLayoutCount,
-            matchedTargetCount: matchedLayoutCount,
+        const layoutSummary = bundleImportSummary({
+            existingCount: currentScriptsForConfirm.length,
+            folderCount: Array.isArray(bundle.layout?.folders) ? bundle.layout.folders.length : 0,
+            importedCount: importedScriptCount,
+            matchedCount: matchedLayoutCount,
         });
         const confirmed = await confirmText('정규식 번들 불러오기', replacedCount
-            ? `ID 또는 이름이 같은 기존 ${label} 정규식 스크립트 ${replacedCount}개를 바꾸고 나머지를 추가할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n교체될 스크립트: ${replacedCount}개\n교체될 항목:\n${replacedNames.map(name => `- ${name}`).join('\n')}\n\n${layoutSummary}\n\n계속할까요?`
-            : `이 번들을 현재 ${label} 정규식 목록에 추가하고 폴더 구조를 적용할까요?\n\n현재 스크립트: ${currentScriptsForConfirm.length}개\n가져올 스크립트: ${importedScriptCount}개\n\n${layoutSummary}`);
+            ? `ID 또는 이름이 같은 기존 ${label} 정규식 스크립트 ${replacedCount}개를 바꾸고 나머지를 추가할까요?\n\n${layoutSummary}\n\n계속할까요?`
+            : `이 번들을 현재 ${label} 정규식 목록에 추가하고 폴더 구조를 적용할까요?\n\n${layoutSummary}\n\n계속할까요?`);
         if (!confirmed) return;
         const type = regexTypes[typeKey].scriptType;
         const owner = regexOwnerKey(typeKey);

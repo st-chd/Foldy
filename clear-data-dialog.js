@@ -248,8 +248,11 @@ export function createFoldyDataCleanup({
         regexLayoutOwners.preset.add(regexOwnerKey('preset'));
 
         const regexCollapsedOwners = new Set();
-        for (const owners of Object.values(regexLayoutOwners)) {
-            for (const owner of owners) regexCollapsedOwners.add(owner);
+        for (const [typeKey, owners] of Object.entries(regexLayoutOwners)) {
+            for (const owner of owners) {
+                regexCollapsedOwners.add(owner);
+                regexCollapsedOwners.add(`${typeKey}:${owner}`);
+            }
         }
 
         return {
@@ -430,14 +433,18 @@ export function createFoldyDataCleanup({
                 const layoutWithoutFolder = nextLayout === layout
                     ? { ...layout, folders: layout.folders.filter(folder => folder.id !== item.folderId) }
                     : nextLayout;
+                const collapsedOwnerKeys = [`${item.typeKey}:${item.owner}`, item.owner];
                 if (layoutWithoutFolder.folders.length) {
                     state.layouts.regex[item.typeKey][item.owner] = layoutWithoutFolder;
-                    const collapsed = (state.collapsed.regex[item.owner] || []).filter(id => id !== item.folderId);
-                    if (collapsed.length) state.collapsed.regex[item.owner] = collapsed;
-                    else delete state.collapsed.regex[item.owner];
+                    for (const collapsedOwner of collapsedOwnerKeys) {
+                        if (!Object.hasOwn(state.collapsed.regex, collapsedOwner)) continue;
+                        const collapsed = (state.collapsed.regex[collapsedOwner] || []).filter(id => id !== item.folderId);
+                        if (collapsed.length) state.collapsed.regex[collapsedOwner] = collapsed;
+                        else delete state.collapsed.regex[collapsedOwner];
+                    }
                 } else {
                     delete state.layouts.regex[item.typeKey][item.owner];
-                    delete state.collapsed.regex[item.owner];
+                    collapsedOwnerKeys.forEach(owner => delete state.collapsed.regex[owner]);
                 }
             }
         }

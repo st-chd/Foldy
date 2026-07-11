@@ -1,4 +1,5 @@
 import {
+    bundleImportSummary,
     bundleEnvelope,
     bundleFilename,
     cloneJson,
@@ -338,17 +339,15 @@ export function createPromptBundleActions({
             .filter(prompt => prompt?.identifier)
             .map(prompt => String(prompt.identifier)));
         const matchedLayoutCount = [...sourceLayoutIds].filter(id => importedPromptIds.has(String(id))).length;
-        const layoutSummary = importedLayoutSummary({
-            currentLabel: '가져올 프롬프트',
-            currentOnlyLabel: '폴더 구조에 없는 가져올 프롬프트',
-            currentCount: importedPromptCount,
-            sourceCount: sourceLayoutIds.size,
-            matchedSourceCount: matchedLayoutCount,
-            matchedTargetCount: matchedLayoutCount,
+        const layoutSummary = bundleImportSummary({
+            existingCount: existingPromptCount,
+            folderCount: Array.isArray(bundle.layout?.folders) ? bundle.layout.folders.length : 0,
+            importedCount: importedPromptCount,
+            matchedCount: matchedLayoutCount,
         });
         const confirmed = await confirmText('프롬프트 번들 불러오기', exists
-            ? `기존 프롬프트 프리셋 "${presetName}"을 이 번들로 바꿀까요?\n\n기존 프롬프트: ${existingPromptCount}개\n가져올 프롬프트: ${importedPromptCount}개\n\n${layoutSummary}\n\n계속할까요?`
-            : `이 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?\n\n가져올 프롬프트: ${importedPromptCount}개\n\n${layoutSummary}`);
+            ? `기존 프롬프트 프리셋 "${presetName}"을 이 번들로 바꿀까요?\n\n${layoutSummary}\n\n계속할까요?`
+            : `이 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?\n\n${layoutSummary}\n\n계속할까요?`);
         if (!confirmed) return;
         const presetSettings = cloneJson(bundle.presetSettings || currentPromptPresetSettings(presetName));
         await presetManager.savePreset(presetName, presetSettings);

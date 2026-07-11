@@ -134,6 +134,22 @@ export function importedLayoutSummary({
     return rows.join('\n');
 }
 
+export function bundleImportSummary({
+    existingCount,
+    folderCount,
+    importedCount,
+    matchedCount,
+}) {
+    return [
+        `기존 항목: ${existingCount}개`,
+        `가져올 폴더: ${folderCount}개`,
+        `가져올 항목: ${importedCount}개`,
+        `매칭된 항목: ${matchedCount}개`,
+        '',
+        '⚠️ 불러오기 시 같은 항목은 덮어씌워집니다.',
+    ].join('\n');
+}
+
 export function nameKey(value) {
     return String(value || '').trim().toLocaleLowerCase();
 }

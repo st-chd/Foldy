@@ -11,6 +11,7 @@ import {
     setupFolderSortables,
 } from './folder-sortables.js';
 import {
+    bundleImportSummary,
     bundleEnvelope,
     bundleFilename,
     cloneJson,
@@ -832,17 +833,15 @@ export function createLorebookBundleActions({
         const sourceLayoutIds = new Set(flattenLayout(bundle.layout));
         const importedEntryIds = new Set(loreEntryIds(bundle.data).map(String));
         const matchedLayoutCount = [...sourceLayoutIds].filter(id => importedEntryIds.has(String(id))).length;
-        const layoutSummary = importedLayoutSummary({
-            currentLabel: '가져올 항목',
-            currentOnlyLabel: '폴더 구조에 없는 가져올 항목',
-            currentCount: importedEntryCount,
-            sourceCount: sourceLayoutIds.size,
-            matchedSourceCount: matchedLayoutCount,
-            matchedTargetCount: matchedLayoutCount,
+        const layoutSummary = bundleImportSummary({
+            existingCount: existingEntryCount,
+            folderCount: Array.isArray(bundle.layout?.folders) ? bundle.layout.folders.length : 0,
+            importedCount: importedEntryCount,
+            matchedCount: matchedLayoutCount,
         });
         const confirmed = await confirmText('로어북 번들 불러오기', exists
-            ? `기존 로어북 "${name}"을 이 번들로 바꿀까요?\n\n기존 항목: ${existingEntryCount}개\n가져올 항목: ${importedEntryCount}개\n\n${layoutSummary}\n\n계속할까요?`
-            : `이 번들로 새 로어북 "${name}"을 만들까요?\n\n가져올 항목: ${importedEntryCount}개\n\n${layoutSummary}`);
+            ? `기존 로어북 "${name}"을 이 번들로 바꿀까요?\n\n${layoutSummary}\n\n계속할까요?`
+            : `이 번들로 새 로어북 "${name}"을 만들까요?\n\n${layoutSummary}\n\n계속할까요?`);
         if (!confirmed) return;
         await enqueueLorebookWrite(name, async () => {
             const data = cloneJson(bundle.data);
