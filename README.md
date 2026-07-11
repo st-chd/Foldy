@@ -3,7 +3,8 @@
 Foldy는 프롬프트, 로어북(월드 인포), 정규식 목록에 폴더 기능을 추가하는 확장 프로그램입니다. 항목이 많아졌을 때 관련 항목을 폴더로 묶어 접고 펼치거나, 폴더 단위로 이동·관리할 수 있게 해줍니다.
 
 ## 미리보기
-<img src="/README/screenshot.png">
+<img src="/README/screenshot1.png">
+<img src="/README/screenshot2.png">
 
 ## 주요 기능 요약
 - 폴더 생성, 일괄 이동, 전체 접기/펼치기, 내보내기/불러오기
