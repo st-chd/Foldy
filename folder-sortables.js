@@ -85,6 +85,7 @@ export function setupFolderSortables({
         draggingFolderId = null;
         list.classList.remove('foldy-dropping-into-folder');
         list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
+        list.querySelectorAll('.foldy-drop-placeholder').forEach(element => element.remove());
     };
 
     const rememberPointer = (event, ui) => {
