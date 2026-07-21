@@ -25,6 +25,7 @@ import {
 import {
     createRenderGate,
     flattenLayout,
+    rootNodeKey,
     layoutWithItemMovedToFolder,
     layoutWithItemsMovedToFolder,
     layoutWithUpdatedFolder,
@@ -33,6 +34,14 @@ import {
     removeFolder,
     remapImportedLayout,
 } from './model.js';
+
+const LORE_PER_PAGE_KEY = 'Foldy_LorePerPage';
+const LORE_PER_PAGE_DEFAULT = 25;
+// A folder counts as one entry here, so smaller pages are more useful than in
+// SillyTavern's flat list. 5 is Foldy-only; ST's own list keeps its defaults.
+const LORE_PER_PAGE_OPTIONS = [5, 10, 25, 50, 100, 500, 1000];
+const LORE_PAGINATION_TEMPLATE = '<%= rangeStart %>-<%= rangeEnd %> .. <%= totalNumber %>';
+
 export function createLorebookIntegration({
     loreSortValue,
     sortOrderKey,
@@ -81,12 +90,57 @@ export function createLorebookIntegration({
     let loreSearchRenderTimer = 0;
     let sortingLore = false;
     let currentLoreLayout = null;
+    let lorePage = 1;
+    let lorePageContext = null;
+
+    function lorePageSize() {
+        const stored = Number(accountStorage.getItem(LORE_PER_PAGE_KEY));
+        return Number.isFinite(stored) && stored > 0 ? stored : LORE_PER_PAGE_DEFAULT;
+    }
+
+    function resetLorePage() {
+        lorePage = 1;
+    }
+
+    // Foldy renders one page of root nodes at a time, so the pager is driven by
+    // Foldy's own render pass: the widget only reports the requested page number
+    // and the next render slices the layout accordingly.
+    function renderLorePagination(totalNodes) {
+        const container = $('#world_info_pagination');
+        if (!container.length) return;
+        container.pagination({
+            dataSource: Array.from({ length: totalNodes }, (_, index) => index),
+            pageSize: lorePageSize(),
+            // pagination.js mutates this array when the stored size is not in
+            // the list, so hand it a throwaway copy on every render.
+            sizeChangerOptions: [...LORE_PER_PAGE_OPTIONS],
+            showSizeChanger: true,
+            pageRange: 1,
+            pageNumber: lorePage,
+            position: 'top',
+            showPageNumbers: false,
+            prevText: '<',
+            nextText: '>',
+            formatNavigator: LORE_PAGINATION_TEMPLATE,
+            showNavigator: true,
+            callback: (_page, model) => {
+                if (model.pageNumber === lorePage) return;
+                lorePage = model.pageNumber;
+                queueLoreRender();
+            },
+            afterSizeSelectorChange: event => {
+                accountStorage.setItem(LORE_PER_PAGE_KEY, event.target.value);
+                lorePage = 1;
+                queueLoreRender();
+            },
+        });
+    }
 
     function destroyLoreSortables(list = document.getElementById('world_popup_entries_list')) {
         destroyFolderSortables(list, '.foldy-lore-items');
     }
 
-    function setupLoreSortables(owner, data, layout) {
+    function setupLoreSortables(owner, data, layout, pageNodeKeys) {
         const list = document.getElementById('world_popup_entries_list');
         if (!list) return;
 
@@ -101,7 +155,7 @@ export function createLorebookIntegration({
             saving = true;
             try {
                 list.querySelectorAll('.foldy-folder').forEach(updateFolderCount);
-                const next = loreLayoutFromDom(list, layout, allIds);
+                const next = loreLayoutFromDom(list, layout, allIds, pageNodeKeys);
                 if (shouldRejectDomLayout(layout, next, '로어북')) {
                     queueLoreRender();
                     return;
@@ -190,7 +244,6 @@ export function createLorebookIntegration({
             list.innerHTML = '';
             list.classList.add('foldy-lore-root');
             list.classList.toggle('foldy-searching', Boolean(query));
-            $('#world_info_pagination').empty();
             const headers = await renderTemplateAsync('worldInfoKeywordHeaders');
             list.insertAdjacentHTML('beforeend', headers);
 
@@ -319,13 +372,35 @@ export function createLorebookIntegration({
                 return folderElement;
             };
 
+            // Mirrors the null cases in renderRootNode so the pager counts
+            // exactly the root nodes that end up on screen.
+            const isVisibleRootNode = node => {
+                if (node.type === 'item') return visibleIds.has(String(node.id));
+                const folder = folderMap.get(node.id);
+                if (!folder) return false;
+                return !query || loreFolderVisibleItemIds(folder, visibleIds).length > 0;
+            };
+            const visibleRootNodes = layout.root.filter(isVisibleRootNode);
+
+            const pageContext = `${owner} ${query}`;
+            if (lorePageContext !== pageContext) {
+                lorePageContext = pageContext;
+                lorePage = 1;
+            }
+            const pageSize = lorePageSize();
+            const pageCount = Math.max(1, Math.ceil(visibleRootNodes.length / pageSize));
+            lorePage = Math.min(Math.max(1, lorePage), pageCount);
+            const pageNodes = visibleRootNodes.slice((lorePage - 1) * pageSize, lorePage * pageSize);
+            const pageNodeKeys = pageNodes.map(rootNodeKey);
+
             const fragment = document.createDocumentFragment();
-            const rootElements = await Promise.all(layout.root.map(renderRootNode));
+            const rootElements = await Promise.all(pageNodes.map(renderRootNode));
             rootElements.filter(Boolean).forEach(element => fragment.append(element));
             list.append(fragment);
+            renderLorePagination(visibleRootNodes.length);
 
             document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
-            if (!query) setupLoreSortables(owner, data, layout);
+            if (!query) setupLoreSortables(owner, data, layout, pageNodeKeys);
             else destroyLoreSortables(list);
         } catch (error) {
             debugLog('로어북 폴더 표시 실패', error);
@@ -516,6 +591,7 @@ export function createLorebookIntegration({
         installLorebookIntegration,
         queueLoreRender,
         renderLorebookFolders,
+        resetLorePage,
     };
 }
 

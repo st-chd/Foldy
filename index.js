@@ -64,6 +64,7 @@ import {
     layoutWithItemsMovedToFolder,
     layoutIntegrityDiff,
     layoutFromTree,
+    mergePagedRootNodes,
     normalizeLayout,
     orderItemsByLayout,
     rootItemIds,
@@ -101,6 +102,7 @@ const REGEX_FOLDER_TARGETS = [
 
 let applyLorebookFeatureState = () => {};
 let queueLoreRender = () => {};
+let resetLorePage = () => {};
 let installLorebookIntegration = async () => {};
 let enhanceRegexLists = () => {};
 let installRegexIntegration = async () => {};
@@ -670,19 +672,20 @@ const {
     attachMoveToFolderButton,
     createFolderElement,
 });
-function loreLayoutFromDom(list, sourceLayout, allIds) {
-    const nodes = [];
+function loreLayoutFromDom(list, sourceLayout, allIds, pageNodeKeys = null) {
+    const domNodes = [];
     for (const element of list.children) {
         if (element.classList.contains('foldy-folder')) {
             const id = element.dataset.foldyId;
             const itemIds = [...(element.querySelector('.foldy-folder-items')?.children || [])]
                 .map(item => item.getAttribute('uid'))
                 .filter(Boolean);
-            nodes.push({ type: 'folder', id, itemIds, preserveItems: element.classList.contains('is-collapsed') });
+            domNodes.push({ type: 'folder', id, itemIds, preserveItems: element.classList.contains('is-collapsed') });
         } else if (element.hasAttribute('uid')) {
-            nodes.push({ type: 'item', id: element.getAttribute('uid') });
+            domNodes.push({ type: 'item', id: element.getAttribute('uid') });
         }
     }
+    const nodes = pageNodeKeys ? mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) : domNodes;
     return layoutFromTree(nodes, sourceLayout, allIds, {
         onMissingSourceFolders: ids => debugLog('로어북 DOM에 저장된 폴더가 없습니다.', ids, 'warn'),
     });
@@ -737,6 +740,7 @@ async function createLorebookFolder() {
         sort.value = LORE_SORT_VALUE;
         accountStorage.setItem(SORT_ORDER_KEY, LORE_SORT_VALUE);
     }
+    resetLorePage();
     queueLoreRender();
 }
 
@@ -797,6 +801,7 @@ async function createLorebookEntryInFolderOrder() {
 
         await persistLoreLayout(owner, layout);
         await saveWorldInfo(name, data, true);
+        resetLorePage();
         queueLoreRender();
     });
 }
@@ -965,7 +970,7 @@ function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = 
     return [strategy, position];
 }
 
-({ applyLorebookFeatureState, installLorebookIntegration, queueLoreRender } = createLorebookIntegration({
+({ applyLorebookFeatureState, installLorebookIntegration, queueLoreRender, resetLorePage } = createLorebookIntegration({
     loreSortValue: LORE_SORT_VALUE,
     sortOrderKey: SORT_ORDER_KEY,
     featureEnabled,

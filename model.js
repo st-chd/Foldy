@@ -241,6 +241,35 @@ export function layoutFromTree(nodes, sourceLayout, itemIds = [], {
     return normalizeLayout({ version: FOLDY_VERSION, root, folders }, itemIds, normalizeOptions);
 }
 
+export function rootNodeKey(node) {
+    return `${node?.type}:${node?.id}`;
+}
+
+// When only one page of root nodes is in the DOM, the DOM alone is an
+// incomplete picture of the layout. Splice the page's DOM nodes back into the
+// full root order and mark off-page folders as preserved so layoutFromTree
+// keeps their stored items instead of treating them as emptied.
+export function mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) {
+    const pageKeys = new Set(pageNodeKeys || []);
+    if (!pageKeys.size) return domNodes;
+    const nodes = [];
+    let inserted = false;
+    for (const node of sourceLayout?.root || []) {
+        if (pageKeys.has(rootNodeKey(node))) {
+            if (!inserted) {
+                nodes.push(...domNodes);
+                inserted = true;
+            }
+            continue;
+        }
+        nodes.push(node.type === 'folder'
+            ? { type: 'folder', id: String(node.id), preserveItems: true }
+            : { type: 'item', id: String(node.id) });
+    }
+    if (!inserted) nodes.push(...domNodes);
+    return nodes;
+}
+
 export function remapImportedLayout(layout, itemIdMap, createFolderId = generateUUID) {
     // Only folders reachable from root are meaningful; dangling folder objects
     // are dropped during import remapping just like layoutFromTree normalization.
