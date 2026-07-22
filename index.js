@@ -23,6 +23,7 @@ import { createPromptIntegration } from './prompt-integration.js';
 import {
     createLorebookBundleActions,
     createLorebookIntegration,
+    detectLorebookRename,
     isLoreOriginalDataCompatible as isLoreOriginalDataCompatibleBase,
     loreEntryLabel,
     setLoreEntryPosition,
@@ -107,6 +108,7 @@ let installLorebookIntegration = async () => {};
 let enhanceRegexLists = () => {};
 let installRegexIntegration = async () => {};
 let runtimeEventsRegistered = false;
+let lastKnownLorebookNames = null;
 const loreWriteQueues = new Map();
 const sessionDisabledFeatures = new Set();
 const foldySettingsStore = createFoldySettingsStore({
@@ -415,10 +417,21 @@ function currentLorebookOwner() {
     return value;
 }
 
-function syncLorebookRenameMigration() {
-    // WORLDINFO_SETTINGS_UPDATED provides names only. A one-name removal and
-    // addition is indistinguishable from deleting one lorebook and creating
-    // another, so never transfer persisted layout data on that heuristic.
+function syncLorebookRenameMigration({ rerender = true } = {}) {
+    const names = currentLorebookNames();
+    if (lastKnownLorebookNames === null) {
+        lastKnownLorebookNames = names;
+        return;
+    }
+    const rename = detectLorebookRename(lastKnownLorebookNames, names);
+    lastKnownLorebookNames = names;
+    if (!rename) return;
+    const oldOwner = lorebookOwnerForName(rename.oldName);
+    const newOwner = lorebookOwnerForName(rename.newName);
+    if (migrateLorebookOwnerKey(oldOwner, newOwner)) {
+        saveSettingsDebounced();
+        if (rerender) queueLoreRender();
+    }
 }
 
 const foldyDataCleanup = createFoldyDataCleanup({
