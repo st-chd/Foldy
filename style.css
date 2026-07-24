@@ -205,7 +205,7 @@
     display: none;
 }
 
-/* Hide badges left in the DOM by an older module until the list rerenders. */
+/* 목록이 다시 렌더링되기 전까지, 예전 모듈이 DOM에 남겨둔 배지를 숨긴다. */
 .foldy-prompt-folder .foldy-state-badge,
 .foldy-lore-folder .foldy-state-badge {
     display: none;
@@ -772,15 +772,15 @@ button[hidden].foldy-lore-collapse-all {
     }
 
     /*
-     * Opened on mobile, the menu is moved to <body> and positioned via JS
-     * (see openFoldyFolderMenu in folder-ui.js). This is necessary because
-     * SillyTavern gives several mobile drawers (.drawer-content, #world_popup)
-     * their own backdrop-filter, which makes that drawer - not the viewport -
-     * the containing block for any `position: fixed` descendant. A menu fixed
-     * inside such a drawer ends up anchored to the drawer box instead of the
-     * clicked item, and can be clipped by the drawer's own scroll area.
-     * Body has no such filter, so this rule (matched regardless of DOM
-     * ancestry) keeps the portaled menu visible above everything else.
+     * 모바일에서 메뉴를 열면 <body>로 옮겨진 뒤 JS로 위치가 계산된다
+     * (folder-ui.js의 openFoldyFolderMenu 참고). 이렇게 해야 하는 이유는
+     * SillyTavern이 일부 모바일 드로어(.drawer-content, #world_popup)에
+     * 자체 backdrop-filter를 주기 때문인데, 이 필터 때문에 뷰포트가 아니라
+     * 그 드로어가 `position: fixed` 자식 요소의 containing block이 되어
+     * 버린다. 드로어 안에 fixed로 고정된 메뉴는 클릭한 항목이 아니라 드로어
+     * 박스를 기준으로 앉게 되고, 드로어 자체 스크롤 영역에 잘릴 수도 있다.
+     * body에는 그런 필터가 없으므로, DOM 상 어디에 있든 이 규칙이 항상 적용돼
+     * body로 옮겨진 메뉴가 다른 모든 요소 위에 보이게 유지된다.
      */
     .foldy-folder-actions.foldy-folder-actions-portal {
         display: flex;

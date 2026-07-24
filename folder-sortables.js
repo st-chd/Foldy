@@ -226,8 +226,8 @@ export function setupFolderSortables({
             receive: (_, ui) => {
                 if (ui.item.hasClass('foldy-folder')) {
                     $(ui.sender).sortable('cancel');
-                    // A cancelled sender is not guaranteed to emit stop across
-                    // supported jQuery UI/browser combinations.
+                    // 취소된 sender가 지원 대상 jQuery UI/브라우저 조합 전체에서
+                    // 항상 stop 이벤트를 발생시킨다는 보장이 없다.
                     setSorting(false);
                     clearDropState();
                 }

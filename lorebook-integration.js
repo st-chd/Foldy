@@ -37,8 +37,9 @@ import {
 
 const LORE_PER_PAGE_KEY = 'Foldy_LorePerPage';
 const LORE_PER_PAGE_DEFAULT = 25;
-// A folder counts as one entry here, so smaller pages are more useful than in
-// SillyTavern's flat list. 5 is Foldy-only; ST's own list keeps its defaults.
+// 여기서는 폴더 하나가 항목 하나로 취급되므로, SillyTavern의 평면 목록보다
+// 작은 페이지 크기가 더 유용하다. 5는 Foldy 전용 값이며, ST 자체 목록은
+// 기본값을 그대로 유지한다.
 const LORE_PER_PAGE_OPTIONS = [5, 10, 25, 50, 100, 500, 1000];
 const LORE_PAGINATION_TEMPLATE = '<%= rangeStart %>-<%= rangeEnd %> .. <%= totalNumber %>';
 
@@ -102,17 +103,17 @@ export function createLorebookIntegration({
         lorePage = 1;
     }
 
-    // Foldy renders one page of root nodes at a time, so the pager is driven by
-    // Foldy's own render pass: the widget only reports the requested page number
-    // and the next render slices the layout accordingly.
+    // Foldy는 루트 노드를 한 번에 한 페이지씩 렌더링하므로, 페이지 이동은
+    // Foldy 자체 렌더 과정이 주도한다: 위젯은 요청된 페이지 번호만 알려주고,
+    // 다음 렌더링에서 그 번호에 맞춰 레이아웃을 잘라낸다.
     function renderLorePagination(totalNodes) {
         const container = $('#world_info_pagination');
         if (!container.length) return;
         container.pagination({
             dataSource: Array.from({ length: totalNodes }, (_, index) => index),
             pageSize: lorePageSize(),
-            // pagination.js mutates this array when the stored size is not in
-            // the list, so hand it a throwaway copy on every render.
+            // pagination.js는 저장된 크기가 목록에 없으면 이 배열을 변형시키므로,
+            // 렌더링할 때마다 버려도 되는 사본을 넘긴다.
             sizeChangerOptions: [...LORE_PER_PAGE_OPTIONS],
             showSizeChanger: true,
             pageRange: 1,
@@ -235,9 +236,10 @@ export function createLorebookIntegration({
             const collapsed = ownerCollapsed('lore', owner);
             const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
 
-            // This observer watches a list Foldy rewrites. Disconnect it for
-            // the entire render transaction; any DOM mutation added here must
-            // remain inside this guarded block to avoid observer feedback.
+            // 이 옵저버는 Foldy가 다시 쓰는 목록을 감시한다. 렌더링 트랜잭션 전체
+            // 동안은 연결을 끊어야 하며, 여기서 추가하는 DOM 변경은 옵저버가
+            // 자기 자신의 변경을 다시 감지하는 피드백을 막기 위해 반드시 이
+            // 보호 블록 안에 있어야 한다.
             loreObserver?.disconnect();
             destroyLoreSortables(list);
             closeOpenFolderMenus(list);
@@ -372,8 +374,8 @@ export function createLorebookIntegration({
                 return folderElement;
             };
 
-            // Mirrors the null cases in renderRootNode so the pager counts
-            // exactly the root nodes that end up on screen.
+            // renderRootNode의 null 처리 분기와 동일하게 맞춰서, 페이저가
+            // 실제로 화면에 표시되는 루트 노드 수만 정확히 세도록 한다.
             const isVisibleRootNode = node => {
                 if (node.type === 'item') return visibleIds.has(String(node.id));
                 const folder = folderMap.get(node.id);
@@ -664,9 +666,9 @@ export function syncLoreOriginalEntry(data, entry) {
     const uid = Number(entry.uid);
     const existing = data.originalData.entries.find(value => value.uid === uid || value.id === uid);
     const original = existing ?? { uid, id: uid };
-    // FRAGILE ST coupling: mirrors SillyTavern World Info originalData entry
-    // shape used by world-info.js. If ST adds/renames fields while keeping an
-    // array of uid/id records, this may silently degrade rather than crash.
+    // ST와 느슨하게 결합된 부분: world-info.js가 쓰는 SillyTavern World Info의
+    // originalData 항목 형태를 그대로 흉내 낸다. ST가 uid/id 배열 구조는
+    // 유지한 채 필드만 추가/이름 변경하면, 오류 없이 조용히 저하될 수 있다.
     original.uid = uid;
     original.id = uid;
     original.keys = Array.isArray(entry.key) ? [...entry.key] : [];

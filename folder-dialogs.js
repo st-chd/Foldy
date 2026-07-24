@@ -448,13 +448,10 @@ export function createFolderDialogs({
         if (kind === 'lore') {
             const host = element.querySelector('.inline-drawer-header');
             if (!host) return;
-            // Always group the native move/duplicate/delete buttons into this
-            // wrapper, even with zero folders: the mobile layout puts
-            // .inline-drawer-header into a fixed-column CSS grid, and without
-            // this wrapper those buttons have no assigned grid cell, so they
-            // fall back to grid auto-placement and end up crammed into the
-            // narrow left column across multiple rows instead of following
-            // the entry's own controls.
+            // 폴더가 하나도 없어도 기본 이동/복제/삭제 버튼을 항상 이 래퍼로 묶는다.
+            // 모바일 레이아웃에서 .inline-drawer-header가 고정 컬럼 CSS grid가 되는데,
+            // 이 래퍼가 없으면 해당 버튼들은 grid 셀이 지정되지 않아 자동 배치로 넘어가면서
+            // 항목 자체 컨트롤을 따라가지 못하고 좁은 왼쪽 컬럼에 여러 줄로 몰리게 된다.
             let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
             if (!actions) {
                 actions = document.createElement('div');

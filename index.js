@@ -304,8 +304,8 @@ function saveCollapsed(kind, owner, values) {
 }
 
 function promptPresetManager() {
-    // Prompt folders track SillyTavern's OpenAI prompt preset manager; regex
-    // preset folders use the currently active regex preset API instead.
+    // 프롬프트 폴더는 SillyTavern의 OpenAI 프롬프트 프리셋 매니저를 따라가고,
+    // 정규식 프리셋 폴더는 대신 현재 활성화된 정규식 프리셋 API를 사용한다.
     return getPresetManager('openai');
 }
 
