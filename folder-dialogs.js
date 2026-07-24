@@ -423,10 +423,7 @@ export function createFolderDialogs({
         return button;
     }
 
-    function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
-        if (!element) return;
-        element.querySelectorAll?.(':scope .foldy-move-to-folder').forEach(button => button.remove());
-        if (!layout.folders.length) return;
+    function createMoveToFolderButton(kind, layout, itemId, onMove) {
         const title = '\uD3F4\uB354\uB85C \uC774\uB3D9';
         const button = kind === 'prompt' ? document.createElement('span') : createIconButton('fa-folder-open', title, 'foldy-move-to-folder');
         if (kind === 'prompt') {
@@ -441,25 +438,42 @@ export function createFolderDialogs({
             if (!result.changed) return;
             await onMove(result.layout);
         }, { withErrorToast });
+        return button;
+    }
 
-        if (kind === 'prompt') {
-            element.querySelector('.prompt_manager_prompt_controls')?.prepend(button);
-            return;
-        }
+    function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
+        if (!element) return;
+        element.querySelectorAll?.(':scope .foldy-move-to-folder').forEach(button => button.remove());
 
         if (kind === 'lore') {
             const host = element.querySelector('.inline-drawer-header');
-            if (host) {
-                let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
-                if (!actions) {
-                    actions = document.createElement('div');
-                    actions.className = 'foldy-lore-entry-actions';
-                    const nativeButtons = [...host.querySelectorAll(':scope > .move_entry_button, :scope > .duplicate_entry_button, :scope > .delete_entry_button')];
-                    host.append(actions);
-                    nativeButtons.forEach(value => actions.append(value));
-                }
-                actions.prepend(button);
+            if (!host) return;
+            // Always group the native move/duplicate/delete buttons into this
+            // wrapper, even with zero folders: the mobile layout puts
+            // .inline-drawer-header into a fixed-column CSS grid, and without
+            // this wrapper those buttons have no assigned grid cell, so they
+            // fall back to grid auto-placement and end up crammed into the
+            // narrow left column across multiple rows instead of following
+            // the entry's own controls.
+            let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
+            if (!actions) {
+                actions = document.createElement('div');
+                actions.className = 'foldy-lore-entry-actions';
+                const nativeButtons = [...host.querySelectorAll(':scope > .move_entry_button, :scope > .duplicate_entry_button, :scope > .delete_entry_button')];
+                host.append(actions);
+                nativeButtons.forEach(value => actions.append(value));
             }
+            if (layout.folders.length) {
+                actions.prepend(createMoveToFolderButton(kind, layout, itemId, onMove));
+            }
+            return;
+        }
+
+        if (!layout.folders.length) return;
+        const button = createMoveToFolderButton(kind, layout, itemId, onMove);
+
+        if (kind === 'prompt') {
+            element.querySelector('.prompt_manager_prompt_controls')?.prepend(button);
             return;
         }
 

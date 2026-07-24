@@ -90,6 +90,61 @@ export function closeOpenFolderMenus(root = document) {
     });
 }
 
+const FOLDY_MOBILE_MENU_QUERY = '(max-width: 700px)';
+
+function isFoldyMobileMenuActive() {
+    return typeof window.matchMedia === 'function' && window.matchMedia(FOLDY_MOBILE_MENU_QUERY).matches;
+}
+
+// On narrow viewports the folder menu is portaled to <body> and positioned
+// via JS instead of relying on CSS `position: fixed` inside the header.
+// SillyTavern gives several mobile drawers (.drawer-content, #world_popup)
+// their own backdrop-filter, which per spec makes THAT element the
+// containing block for fixed-position descendants instead of the viewport.
+// A plain `position: fixed; top: auto` menu then anchors to the drawer box,
+// not the viewport, and on real devices (dynamic toolbar / dvh quirks) ends
+// up pinned near the bottom of the drawer or clipped out of the drawer's
+// own overflow entirely - reproducing as "stuck at the bottom" and, in the
+// prompt manager where the drawer clips more aggressively, unclickable.
+// Body has no such filter, so a body-anchored fixed menu always measures
+// against the real viewport.
+function openFoldyFolderMenu(anchor, actions) {
+    if (!isFoldyMobileMenuActive()) return;
+    const header = actions.parentElement;
+    actions.__foldyHomeParent = header;
+    actions.__foldyHomeNext = actions.nextSibling;
+    document.body.appendChild(actions);
+    actions.classList.add('foldy-folder-actions-portal');
+    positionFoldyFolderMenu(anchor, actions);
+}
+
+function positionFoldyFolderMenu(anchor, actions) {
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    actions.style.top = '0px';
+    actions.style.left = '0px';
+    actions.style.maxWidth = `${window.innerWidth - margin * 2}px`;
+    const actionsRect = actions.getBoundingClientRect();
+    const maxLeft = window.innerWidth - actionsRect.width - margin;
+    const left = Math.max(margin, Math.min(rect.right - actionsRect.width, maxLeft));
+    const maxTop = window.innerHeight - actionsRect.height - margin;
+    const top = Math.max(margin, Math.min(rect.bottom + 4, maxTop));
+    actions.style.left = `${left}px`;
+    actions.style.top = `${top}px`;
+}
+
+function closeFoldyFolderMenu(actions) {
+    if (!actions.classList.contains('foldy-folder-actions-portal')) return;
+    actions.classList.remove('foldy-folder-actions-portal');
+    actions.style.removeProperty('top');
+    actions.style.removeProperty('left');
+    actions.style.removeProperty('max-width');
+    const home = actions.__foldyHomeParent;
+    if (home) home.insertBefore(actions, actions.__foldyHomeNext || null);
+    actions.__foldyHomeParent = null;
+    actions.__foldyHomeNext = null;
+}
+
 export function applyFolderStyleToAll(layout, sourceFolderId, style) {
     for (const folder of layout.folders) {
         if (folder.id === sourceFolderId) continue;
@@ -338,14 +393,22 @@ export function createFolderElement(folder, {
         more.setAttribute('aria-expanded', 'false');
         outsideClickAbort?.abort();
         outsideClickAbort = null;
+        closeFoldyFolderMenu(actions);
     };
     element.__foldyCloseActions = closeActions;
     const watchOutsideClick = () => {
         outsideClickAbort?.abort();
         outsideClickAbort = new AbortController();
+        const { signal } = outsideClickAbort;
         document.addEventListener('click', event => {
-            if (!element.contains(event.target)) closeActions();
-        }, { signal: outsideClickAbort.signal });
+            if (!element.contains(event.target) && !actions.contains(event.target)) closeActions();
+        }, { signal });
+        // Fixed-position menus can't track the anchor while the surrounding
+        // drawer/list scrolls, so close instead of drifting out of place.
+        // Capture phase catches scroll on inner scroll containers too, since
+        // "scroll" doesn't bubble.
+        document.addEventListener('scroll', closeActions, { signal, capture: true, passive: true });
+        window.addEventListener('resize', closeActions, { signal });
     };
     const items = document.createElement(kind === 'regex' ? 'div' : 'ul');
     items.className = `foldy-folder-items foldy-${kind}-items`;
@@ -376,8 +439,12 @@ export function createFolderElement(folder, {
         closeOpenFolderMenus(element.closest('.foldy-folder-items, #completion_prompt_manager_list, #world_popup_entries_list, #regex_container'));
         element.classList.toggle('is-actions-open', shouldOpen);
         more.setAttribute('aria-expanded', String(shouldOpen));
-        if (shouldOpen) watchOutsideClick();
-        else closeActions();
+        if (shouldOpen) {
+            openFoldyFolderMenu(more, actions);
+            watchOutsideClick();
+        } else {
+            closeActions();
+        }
     });
     actions.addEventListener('click', event => {
         if (event.target.closest?.('button')) closeActions();

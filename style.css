@@ -756,8 +756,6 @@ button[hidden].foldy-lore-collapse-all {
     .foldy-folder-actions {
         display: none;
         position: fixed;
-        right: max(0.45em, env(safe-area-inset-right));
-        top: auto;
         z-index: 20;
         max-width: calc(100vw - 1.25em);
         padding: 0.35em;
@@ -769,12 +767,24 @@ button[hidden].foldy-lore-collapse-all {
         gap: 0.35em;
     }
 
-    #world_popup_entries_list .foldy-folder-actions {
-        transform: translateY(0.15em);
-    }
-
     .foldy-folder.is-actions-open > .foldy-folder-header .foldy-folder-actions {
         display: flex;
+    }
+
+    /*
+     * Opened on mobile, the menu is moved to <body> and positioned via JS
+     * (see openFoldyFolderMenu in folder-ui.js). This is necessary because
+     * SillyTavern gives several mobile drawers (.drawer-content, #world_popup)
+     * their own backdrop-filter, which makes that drawer - not the viewport -
+     * the containing block for any `position: fixed` descendant. A menu fixed
+     * inside such a drawer ends up anchored to the drawer box instead of the
+     * clicked item, and can be clipped by the drawer's own scroll area.
+     * Body has no such filter, so this rule (matched regardless of DOM
+     * ancestry) keeps the portaled menu visible above everything else.
+     */
+    .foldy-folder-actions.foldy-folder-actions-portal {
+        display: flex;
+        z-index: 100000;
     }
 
     .foldy-folder-actions > .menu_button {
