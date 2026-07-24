@@ -3,7 +3,7 @@ function defaultCloneValue(value) {
         try {
             return structuredClone(value);
         } catch {
-            // Fall back to JSON below for host objects structuredClone cannot copy.
+            // structuredClone이 복사할 수 없는 호스트 객체는 아래 JSON 방식으로 대체한다.
         }
     }
     return JSON.parse(JSON.stringify(value));

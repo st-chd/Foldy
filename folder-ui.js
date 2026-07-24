@@ -90,6 +90,60 @@ export function closeOpenFolderMenus(root = document) {
     });
 }
 
+const FOLDY_MOBILE_MENU_QUERY = '(max-width: 700px)';
+
+function isFoldyMobileMenuActive() {
+    return typeof window.matchMedia === 'function' && window.matchMedia(FOLDY_MOBILE_MENU_QUERY).matches;
+}
+
+// 좁은 화면에서는 폴더 메뉴를 헤더 안 CSS `position: fixed`에 맡기지 않고
+// <body>로 옮긴 뒤 JS로 위치를 계산한다. SillyTavern은 일부 모바일 드로어
+// (.drawer-content, #world_popup)에 자체 backdrop-filter를 주는데, 스펙상
+// 이렇게 되면 뷰포트가 아니라 그 드로어 자신이 fixed 자식 요소의 containing
+// block이 되어 버린다. 그 상태에서 `position: fixed; top: auto` 메뉴는
+// 뷰포트가 아니라 드로어 박스를 기준으로 앉게 되고, 실제 기기(동적 툴바 /
+// dvh 이슈)에서는 드로어 하단에 눌러붙거나 드로어 자체 overflow에 잘려
+// 아예 화면 밖으로 사라진다 - 이게 "화면 아래쪽에 고정" 증상이고, 드로어를
+// 더 세게 잘라내는 프롬프트 매니저에서는 아예 클릭도 안 되는 원인이다.
+// body에는 그런 필터가 없으므로, body에 매달린 fixed 메뉴는 항상 실제
+// 뷰포트를 기준으로 계산된다.
+function openFoldyFolderMenu(anchor, actions) {
+    if (!isFoldyMobileMenuActive()) return;
+    const header = actions.parentElement;
+    actions.__foldyHomeParent = header;
+    actions.__foldyHomeNext = actions.nextSibling;
+    document.body.appendChild(actions);
+    actions.classList.add('foldy-folder-actions-portal');
+    positionFoldyFolderMenu(anchor, actions);
+}
+
+function positionFoldyFolderMenu(anchor, actions) {
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    actions.style.top = '0px';
+    actions.style.left = '0px';
+    actions.style.maxWidth = `${window.innerWidth - margin * 2}px`;
+    const actionsRect = actions.getBoundingClientRect();
+    const maxLeft = window.innerWidth - actionsRect.width - margin;
+    const left = Math.max(margin, Math.min(rect.right - actionsRect.width, maxLeft));
+    const maxTop = window.innerHeight - actionsRect.height - margin;
+    const top = Math.max(margin, Math.min(rect.bottom + 4, maxTop));
+    actions.style.left = `${left}px`;
+    actions.style.top = `${top}px`;
+}
+
+function closeFoldyFolderMenu(actions) {
+    if (!actions.classList.contains('foldy-folder-actions-portal')) return;
+    actions.classList.remove('foldy-folder-actions-portal');
+    actions.style.removeProperty('top');
+    actions.style.removeProperty('left');
+    actions.style.removeProperty('max-width');
+    const home = actions.__foldyHomeParent;
+    if (home) home.insertBefore(actions, actions.__foldyHomeNext || null);
+    actions.__foldyHomeParent = null;
+    actions.__foldyHomeNext = null;
+}
+
 export function applyFolderStyleToAll(layout, sourceFolderId, style) {
     for (const folder of layout.folders) {
         if (folder.id === sourceFolderId) continue;
@@ -338,14 +392,21 @@ export function createFolderElement(folder, {
         more.setAttribute('aria-expanded', 'false');
         outsideClickAbort?.abort();
         outsideClickAbort = null;
+        closeFoldyFolderMenu(actions);
     };
     element.__foldyCloseActions = closeActions;
     const watchOutsideClick = () => {
         outsideClickAbort?.abort();
         outsideClickAbort = new AbortController();
+        const { signal } = outsideClickAbort;
         document.addEventListener('click', event => {
-            if (!element.contains(event.target)) closeActions();
-        }, { signal: outsideClickAbort.signal });
+            if (!element.contains(event.target) && !actions.contains(event.target)) closeActions();
+        }, { signal });
+        // fixed 위치인 메뉴는 드로어/목록이 스크롤될 때 앵커를 따라갈 수 없으니
+        // 위치가 어긋나게 두는 대신 닫아버린다. "scroll" 이벤트는 버블링되지
+        // 않으므로 캡처 단계로 등록해야 내부 스크롤 컨테이너의 스크롤도 잡힌다.
+        document.addEventListener('scroll', closeActions, { signal, capture: true, passive: true });
+        window.addEventListener('resize', closeActions, { signal });
     };
     const items = document.createElement(kind === 'regex' ? 'div' : 'ul');
     items.className = `foldy-folder-items foldy-${kind}-items`;
@@ -376,8 +437,12 @@ export function createFolderElement(folder, {
         closeOpenFolderMenus(element.closest('.foldy-folder-items, #completion_prompt_manager_list, #world_popup_entries_list, #regex_container'));
         element.classList.toggle('is-actions-open', shouldOpen);
         more.setAttribute('aria-expanded', String(shouldOpen));
-        if (shouldOpen) watchOutsideClick();
-        else closeActions();
+        if (shouldOpen) {
+            openFoldyFolderMenu(more, actions);
+            watchOutsideClick();
+        } else {
+            closeActions();
+        }
     });
     actions.addEventListener('click', event => {
         if (event.target.closest?.('button')) closeActions();

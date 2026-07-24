@@ -270,9 +270,9 @@ export function createFoldyDataCleanup({
 
     function isPlaceholderLoreOwner(owner) {
         const value = String(owner || '').trim();
-        // Fragile ST coupling: this matches the visible World Info placeholder
-        // label. If ST changes its i18n text, cleanup may report that
-        // placeholder as unused data instead of crashing.
+        // ST와 느슨하게 결합된 부분: 화면에 보이는 World Info 플레이스홀더 라벨과 매칭한다.
+        // ST가 i18n 문구를 바꾸면 오류가 나는 대신 이 플레이스홀더를 미사용 데이터로
+        // 잘못 보고할 수 있다.
         return /^name:\s*-+\s*.*\uC120\uD0DD.*-+\s*$/.test(value)
             || /^name:\s*-+\s*.*select.*-+\s*$/i.test(value);
     }
@@ -328,7 +328,7 @@ export function createFoldyDataCleanup({
                 return parts.at(-1) || value;
             }
         } catch {
-            // Older saved owners use colon-separated keys below.
+            // 예전에 저장된 owner는 아래처럼 콜론으로 구분된 키를 사용한다.
         }
         if (value.startsWith('name:')) return value.slice(5);
         if (/^index:\d+$/.test(value)) return getWorldNames()?.[Number(value.slice(6))] || value;
@@ -347,7 +347,7 @@ export function createFoldyDataCleanup({
             const parts = JSON.parse(value);
             if (Array.isArray(parts)) return parts[0] === typeKey;
         } catch {
-            // Older saved owners use colon-separated keys below.
+            // 예전에 저장된 owner는 아래처럼 콜론으로 구분된 키를 사용한다.
         }
         if (typeKey === 'global') return value === 'global';
         if (typeKey === 'scoped') return value.startsWith('scoped:');

@@ -385,7 +385,7 @@ export function createPromptBundleActions({
 
         const owner = promptOwnerKeyForName(presetName);
         const currentIds = exists ? promptOrderIds(manager) : [];
-        // Imports may reuse existing prompts, but the Foldy layout itself comes from the bundle.
+        // 불러오기는 기존 프롬프트를 재사용할 수 있지만, Foldy 레이아웃 자체는 번들에서 가져온다.
         const currentLayout = normalizeLayout(null, currentIds);
         const importedLayout = remapImportedLayout(bundle.layout, idMap);
         const importedConnectedIds = importedPromptOrderIds(bundle, idMap);

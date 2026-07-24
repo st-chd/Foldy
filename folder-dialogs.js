@@ -423,10 +423,7 @@ export function createFolderDialogs({
         return button;
     }
 
-    function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
-        if (!element) return;
-        element.querySelectorAll?.(':scope .foldy-move-to-folder').forEach(button => button.remove());
-        if (!layout.folders.length) return;
+    function createMoveToFolderButton(kind, layout, itemId, onMove) {
         const title = '\uD3F4\uB354\uB85C \uC774\uB3D9';
         const button = kind === 'prompt' ? document.createElement('span') : createIconButton('fa-folder-open', title, 'foldy-move-to-folder');
         if (kind === 'prompt') {
@@ -441,25 +438,39 @@ export function createFolderDialogs({
             if (!result.changed) return;
             await onMove(result.layout);
         }, { withErrorToast });
+        return button;
+    }
 
-        if (kind === 'prompt') {
-            element.querySelector('.prompt_manager_prompt_controls')?.prepend(button);
-            return;
-        }
+    function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
+        if (!element) return;
+        element.querySelectorAll?.(':scope .foldy-move-to-folder').forEach(button => button.remove());
 
         if (kind === 'lore') {
             const host = element.querySelector('.inline-drawer-header');
-            if (host) {
-                let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
-                if (!actions) {
-                    actions = document.createElement('div');
-                    actions.className = 'foldy-lore-entry-actions';
-                    const nativeButtons = [...host.querySelectorAll(':scope > .move_entry_button, :scope > .duplicate_entry_button, :scope > .delete_entry_button')];
-                    host.append(actions);
-                    nativeButtons.forEach(value => actions.append(value));
-                }
-                actions.prepend(button);
+            if (!host) return;
+            // 폴더가 하나도 없어도 기본 이동/복제/삭제 버튼을 항상 이 래퍼로 묶는다.
+            // 모바일 레이아웃에서 .inline-drawer-header가 고정 컬럼 CSS grid가 되는데,
+            // 이 래퍼가 없으면 해당 버튼들은 grid 셀이 지정되지 않아 자동 배치로 넘어가면서
+            // 항목 자체 컨트롤을 따라가지 못하고 좁은 왼쪽 컬럼에 여러 줄로 몰리게 된다.
+            let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
+            if (!actions) {
+                actions = document.createElement('div');
+                actions.className = 'foldy-lore-entry-actions';
+                const nativeButtons = [...host.querySelectorAll(':scope > .move_entry_button, :scope > .duplicate_entry_button, :scope > .delete_entry_button')];
+                host.append(actions);
+                nativeButtons.forEach(value => actions.append(value));
             }
+            if (layout.folders.length) {
+                actions.prepend(createMoveToFolderButton(kind, layout, itemId, onMove));
+            }
+            return;
+        }
+
+        if (!layout.folders.length) return;
+        const button = createMoveToFolderButton(kind, layout, itemId, onMove);
+
+        if (kind === 'prompt') {
+            element.querySelector('.prompt_manager_prompt_controls')?.prepend(button);
             return;
         }
 

@@ -7,8 +7,8 @@ export function generateUUID() {
         return globalThis.crypto.randomUUID();
     }
 
-    // Fallback is only for older WebViews without crypto.randomUUID; collisions
-    // are extremely unlikely for local folder IDs, but this is not crypto-safe.
+    // 이 대체 구현은 crypto.randomUUID가 없는 구형 WebView에서만 쓰인다. 로컬
+    // 폴더 ID끼리 충돌할 가능성은 극히 낮지만, 암호학적으로 안전하지는 않다.
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, value => {
         const random = Math.floor(Math.random() * 16);
         return (value === 'x' ? random : (random & 0x3) | 0x8).toString(16);
@@ -68,9 +68,9 @@ function uniqueFolderName(name, usedNames) {
     return candidate;
 }
 
-// Reconciles a saved folder layout with SillyTavern's current item order. Items
-// already owned by a root node establish owner positions; missing items are then
-// inserted after the nearest previous owner, or before the nearest next owner.
+// 저장된 폴더 레이아웃을 SillyTavern의 현재 항목 순서와 맞춰 조정한다. 이미
+// 루트 노드에 속한 항목이 기준(owner) 위치를 정하고, 빠진 항목은 가장 가까운
+// 이전 기준 뒤나 다음 기준 앞에 끼워 넣는다.
 export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolders = true, onFolderRenamed = null } = {}) {
     const validIds = itemIds.map(String);
     const validSet = new Set(validIds);
@@ -132,8 +132,8 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         folders = folders.filter(folder => placedFolders.has(folder.id));
     }
 
-    // Only items present in the returned layout count as placed. In particular,
-    // dropping an orphan folder must release its items so they can return to root.
+    // 결과 레이아웃에 실제로 남아있는 항목만 "배치됨"으로 친다. 특히 주인 없는
+    // 폴더를 버릴 때는 그 안의 항목들을 풀어줘야 루트로 되돌아갈 수 있다.
     placedItems.clear();
     for (const folder of folders) {
         for (const itemId of folder.items) placedItems.add(itemId);
@@ -153,8 +153,8 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         }
     });
 
-    // Newly discovered items stay near the closest known neighbor from the
-    // current ST order, preserving folder groups when SillyTavern adds items.
+    // 새로 발견된 항목은 현재 ST 순서 기준으로 가장 가까운 이웃 옆에 붙여 두어,
+    // SillyTavern이 항목을 추가해도 폴더 묶음이 흐트러지지 않게 한다.
     const previousOwners = [];
     let previousOwner = -1;
     for (let index = 0; index < validIds.length; index++) {
@@ -245,10 +245,10 @@ export function rootNodeKey(node) {
     return `${node?.type}:${node?.id}`;
 }
 
-// When only one page of root nodes is in the DOM, the DOM alone is an
-// incomplete picture of the layout. Splice the page's DOM nodes back into the
-// full root order and mark off-page folders as preserved so layoutFromTree
-// keeps their stored items instead of treating them as emptied.
+// 루트 노드 중 한 페이지만 DOM에 있을 때는 DOM만으로 전체 레이아웃을 알 수
+// 없다. 그 페이지의 DOM 노드를 전체 루트 순서에 다시 끼워 넣고, 페이지 밖
+// 폴더는 "보존됨"으로 표시해서 layoutFromTree가 그 폴더를 비었다고 보지
+// 않고 저장된 항목을 그대로 유지하게 한다.
 export function mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) {
     const pageKeys = new Set(pageNodeKeys || []);
     if (!pageKeys.size) return domNodes;
@@ -271,8 +271,9 @@ export function mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) {
 }
 
 export function remapImportedLayout(layout, itemIdMap, createFolderId = generateUUID) {
-    // Only folders reachable from root are meaningful; dangling folder objects
-    // are dropped during import remapping just like layoutFromTree normalization.
+    // 루트에서 닿을 수 있는 폴더만 의미가 있다. layoutFromTree의 정규화와
+    // 마찬가지로, 불러오기 재매핑 과정에서 어디에도 연결되지 않은 폴더 객체는
+    // 버려진다.
     const rootedFolderIds = new Set((layout?.root || [])
         .filter(node => node?.type === 'folder')
         .map(node => String(node.id)));
@@ -410,8 +411,8 @@ export function createRenderGate() {
     };
 }
 
-// Layout transformation helpers return fresh layout objects. Callers rely on
-// layout identity as a cheap staleness check while dialogs and renders await.
+// 레이아웃 변환 헬퍼들은 항상 새 레이아웃 객체를 반환한다. 호출부는 다이얼로그나
+// 렌더링이 대기하는 동안 이 객체 identity를 값싼 "낡음(staleness)" 검사로 쓴다.
 export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
     const id = String(itemId);
     const currentRootIndex = layout.root.findIndex(node => node.type === 'item' && node.id === id);
@@ -496,8 +497,8 @@ export function layoutWithAddedFolder(layout, folderName, itemIds = [], createFo
     };
 }
 
-// Folder edits must replace the layout object so an open dialog can detect
-// that another operation has changed its source layout while it was awaiting.
+// 폴더를 수정할 때는 레이아웃 객체를 반드시 새로 만들어야, 열려 있는 다이얼로그가
+// 대기하는 동안 다른 작업이 자신이 참조하던 레이아웃을 바꿨음을 감지할 수 있다.
 export function layoutWithUpdatedFolder(layout, folderId, values = {}, { applyStyleToAll = false } = {}) {
     const id = String(folderId ?? '');
     const source = layout.folders.find(folder => folder.id === id);
