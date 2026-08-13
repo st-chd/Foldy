@@ -392,8 +392,7 @@
     gap: 0.75em;
 }
 
-/* 위치 선택 아래에 붙는 설명. 라벨 칸이 좁아 한 줄에 못 들어가므로
- * 셀렉트와 같은 칸(2열)에서 바로 아래에 붙인다. */
+/* 위치 선택 아래 설명을 셀렉트와 같은 칸(2열) 바로 아래에 붙인다. */
 .foldy-edit-form .foldy-position-field {
     row-gap: 0.3em;
 }
@@ -721,8 +720,7 @@ button[hidden].foldy-lore-collapse-all {
         min-width: 0;
     }
 
-    /* 이 너비에서는 라벨이 1열로 바뀌므로, 데스크톱용 2열 지정(grid-column: 2)이
-     * 없는 열을 만들어 라벨 칸을 짓눌러 버린다. 여기서만 다시 1열로 되돌린다. */
+    /* 라벨이 1열로 바뀌는 너비라 데스크톱용 grid-column: 2 지정을 여기서만 되돌린다. */
     .foldy-edit-form .foldy-field-hint {
         grid-column: 1;
     }

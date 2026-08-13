@@ -21,6 +21,7 @@ import {
     generateUUID,
     layoutWithAddedFolder,
     layoutWithItemsMovedToFolder,
+    layoutWithMovedFolder,
     layoutWithUpdatedFolder,
     layoutFromTree,
     mergeImportedLayout,
@@ -294,13 +295,18 @@ export function createRegexIntegration({
         const onEdit = async id => {
             const folder = layout.folders.find(value => value.id === id);
             if (!folder) return;
-            const values = await requestFolderSettings(layout, folder);
+            const candidates = [...scriptsById.entries()].map(([scriptId, script]) => ({
+                id: scriptId,
+                label: script?.scriptName || scriptId,
+            }));
+            const values = await requestFolderSettings(layout, folder, candidates);
             if (!values) return;
             if (rerenderIfRegexContextChanged()) return;
-            const { applyStyleToAll, ...folderValues } = values;
-            const result = layoutWithUpdatedFolder(layout, folder.id, folderValues, { applyStyleToAll });
-            currentRegexLayouts[typeKey] = result.layout;
-            await persistRegexLayout(typeKey, owner, result.layout, false);
+            const { applyStyleToAll, afterKey, ...folderValues } = values;
+            const updated = layoutWithUpdatedFolder(layout, folder.id, folderValues, { applyStyleToAll });
+            const moved = layoutWithMovedFolder(updated.layout, folder.id, afterKey);
+            currentRegexLayouts[typeKey] = moved.layout;
+            await persistRegexLayout(typeKey, owner, moved.layout, false);
             rerender();
         };
         const onDelete = async id => {

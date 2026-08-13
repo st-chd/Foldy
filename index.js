@@ -26,6 +26,7 @@ import {
     detectLorebookRename,
     isLoreOriginalDataCompatible as isLoreOriginalDataCompatibleBase,
     loreEntryLabel,
+    LORE_PER_PAGE_KEY,
     setLoreEntryPosition,
     setLoreEntryStrategy,
     setLoreFolderEntriesEnabled,
@@ -304,8 +305,7 @@ function saveCollapsed(kind, owner, values) {
 }
 
 function promptPresetManager() {
-    // 프롬프트 폴더는 SillyTavern의 OpenAI 프롬프트 프리셋 매니저를 따라가고,
-    // 정규식 프리셋 폴더는 대신 현재 활성화된 정규식 프리셋 API를 사용한다.
+    // 프롬프트 폴더는 항상 OpenAI 프리셋 매니저를 쓴다(정규식 프리셋과 달리 API 무관).
     return getPresetManager('openai');
 }
 
@@ -455,6 +455,7 @@ const foldyDataCleanup = createFoldyDataCleanup({
     accountStorage,
     sortOrderKey: SORT_ORDER_KEY,
     loreSortValue: LORE_SORT_VALUE,
+    lorePerPageKey: LORE_PER_PAGE_KEY,
 });
 
 const requestClearFoldyData = createClearDataDialog({

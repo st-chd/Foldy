@@ -7,6 +7,7 @@ import {
     layoutFollowingExternalOrder,
     layoutWithAddedFolder,
     layoutWithItemsMovedToFolder,
+    layoutWithMovedFolder,
     layoutWithUpdatedFolder,
     normalizeLayout,
     orderItemsByLayout,
@@ -214,12 +215,17 @@ export function createPromptIntegration({
             const activeLayout = currentPromptLayout;
             const folder = activeLayout.folders.find(value => value.id === id);
             if (!folder) return;
-            const values = await requestFolderSettings(activeLayout, folder);
+            const candidates = [...itemMap.entries()].map(([itemId, element]) => ({
+                id: itemId,
+                label: element.querySelector('.completion_prompt_manager_prompt_name')?.textContent?.trim() || itemId,
+            }));
+            const values = await requestFolderSettings(activeLayout, folder, candidates);
             if (!values) return;
             if (rerenderIfPromptContextChanged(activeLayout)) return;
-            const { applyStyleToAll, ...folderValues } = values;
-            const result = layoutWithUpdatedFolder(activeLayout, folder.id, folderValues, { applyStyleToAll });
-            await persistPromptLayout(owner, result.layout, manager);
+            const { applyStyleToAll, afterKey, ...folderValues } = values;
+            const updated = layoutWithUpdatedFolder(activeLayout, folder.id, folderValues, { applyStyleToAll });
+            const moved = layoutWithMovedFolder(updated.layout, folder.id, afterKey);
+            await persistPromptLayout(owner, moved.layout, manager);
             rerender();
         };
         const onDelete = async id => {

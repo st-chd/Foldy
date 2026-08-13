@@ -71,13 +71,8 @@ export function setupFolderSortables({
     let lastFolderInsertBefore = null;
     let draggingItemIntoFolder = false;
     let draggingFolderId = null;
-    let pointerFrame = 0;
-    let pointerUi = null;
 
     const clearDropState = () => {
-        if (pointerFrame) cancelAnimationFrame(pointerFrame);
-        pointerFrame = 0;
-        pointerUi = null;
         lastPointer = null;
         lastFolderElement = null;
         lastFolderInsertBefore = null;
@@ -88,6 +83,9 @@ export function setupFolderSortables({
         list.querySelectorAll('.foldy-drop-placeholder').forEach(element => element.remove());
     };
 
+    // jQuery UI가 매 이동마다 동기적으로 placeholder를 형제 위치로 재배치하므로,
+    // 우리 판정도 여기서 동기적으로 해야 항상 마지막에 이겨서 폴더 안에 들어간다.
+    // (requestAnimationFrame으로 미루면 jQuery와 매 프레임 줄다리기가 벌어진다.)
     const rememberPointer = (event, ui) => {
         if (!draggingItemIntoFolder) {
             lastFolderElement = null;
@@ -97,37 +95,32 @@ export function setupFolderSortables({
             return;
         }
         lastPointer = { x: event.clientX, y: event.clientY };
-        pointerUi = ui;
-        if (pointerFrame) return;
-        pointerFrame = requestAnimationFrame(() => {
-            pointerFrame = 0;
-            if (!draggingItemIntoFolder || !lastPointer) return;
-            const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
-                .map(element => element.closest?.(folderHitSelector))
-                .find(Boolean);
-            lastFolderElement = pointedFolder ?? null;
-            list.classList.toggle('foldy-dropping-into-folder', Boolean(pointedFolder));
-            list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
-            pointedFolder?.classList.add('foldy-drop-target');
-            const placeholder = pointerUi?.placeholder?.[0];
-            const items = pointedFolder?.querySelector?.(folderItemsSelector);
-            if (positionPlaceholderInFolder && items) {
-                const draggedItem = pointerUi?.item?.[0];
-                lastFolderInsertBefore = [...items.children]
-                    .filter(element => element !== placeholder && element !== draggedItem)
-                    .find(element => {
-                        const rect = element.getBoundingClientRect?.();
-                        return rect?.height > 0 && lastPointer.y < rect.top + rect.height / 2;
-                    }) ?? null;
-                if (placeholder) {
-                    if (lastFolderInsertBefore) items.insertBefore(placeholder, lastFolderInsertBefore);
-                    else items.append(placeholder);
-                }
-            } else {
-                lastFolderInsertBefore = null;
-                if (appendPlaceholderToFolder && placeholder && items && !items.contains(placeholder)) items.append(placeholder);
+
+        const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
+            .map(element => element.closest?.(folderHitSelector))
+            .find(Boolean);
+        lastFolderElement = pointedFolder ?? null;
+        list.classList.toggle('foldy-dropping-into-folder', Boolean(pointedFolder));
+        list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
+        pointedFolder?.classList.add('foldy-drop-target');
+        const placeholder = ui?.placeholder?.[0];
+        const items = pointedFolder?.querySelector?.(folderItemsSelector);
+        if (positionPlaceholderInFolder && items) {
+            const draggedItem = ui?.item?.[0];
+            lastFolderInsertBefore = [...items.children]
+                .filter(element => element !== placeholder && element !== draggedItem)
+                .find(element => {
+                    const rect = element.getBoundingClientRect?.();
+                    return rect?.height > 0 && lastPointer.y < rect.top + rect.height / 2;
+                }) ?? null;
+            if (placeholder) {
+                if (lastFolderInsertBefore) items.insertBefore(placeholder, lastFolderInsertBefore);
+                else items.append(placeholder);
             }
-        });
+        } else {
+            lastFolderInsertBefore = null;
+            if (appendPlaceholderToFolder && placeholder && items && !items.contains(placeholder)) items.append(placeholder);
+        }
     };
 
     const moveIntoPointedFolder = item => {

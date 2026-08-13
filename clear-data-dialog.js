@@ -202,6 +202,7 @@ export function createFoldyDataCleanup({
     accountStorage = null,
     sortOrderKey = null,
     loreSortValue = null,
+    lorePerPageKey = null,
 }) {
     function presetOwnersForApi(apiId) {
         const manager = getPresetManager(apiId);
@@ -273,9 +274,7 @@ export function createFoldyDataCleanup({
 
     function isPlaceholderLoreOwner(owner) {
         const value = String(owner || '').trim();
-        // ST와 느슨하게 결합된 부분: 화면에 보이는 World Info 플레이스홀더 라벨과 매칭한다.
-        // ST가 i18n 문구를 바꾸면 오류가 나는 대신 이 플레이스홀더를 미사용 데이터로
-        // 잘못 보고할 수 있다.
+        // World Info 플레이스홀더 라벨과 매칭(ST가 문구를 바꾸면 오탐 가능).
         return /^name:\s*-+\s*.*\uC120\uD0DD.*-+\s*$/.test(value)
             || /^name:\s*-+\s*.*select.*-+\s*$/i.test(value);
     }
@@ -490,11 +489,12 @@ export function createFoldyDataCleanup({
         if (scope === 'all' || scope === 'lorebooks') {
             state.layouts.lorebooks = {};
             state.collapsed.lore = {};
-            // Foldy는 로어북 폴더 정렬을 켤 때 ST 코어의 world_info_sort_order 값을
-            // 자체 네임스페이스 밖(accountStorage)에 남긴다. 전체 삭제 시 그 값도
-            // 되돌리지 않으면 확장을 지워도 잔여 설정으로 남는다.
+            // sortOrder/페이지 크기는 accountStorage(자체 네임스페이스 밖)에도 남으므로 같이 지운다.
             if (accountStorage && sortOrderKey && accountStorage.getItem(sortOrderKey) === loreSortValue) {
                 accountStorage.removeItem(sortOrderKey);
+            }
+            if (accountStorage && lorePerPageKey) {
+                accountStorage.removeItem(lorePerPageKey);
             }
         }
         if (scope === 'all' || scope === 'regex') {
