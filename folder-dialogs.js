@@ -3,7 +3,87 @@ import {
     hasDuplicateFolderName,
     layoutWithItemMovedToFolder,
     rootItemIds,
+    rootNodeKey,
 } from './model.js';
+
+// 네이티브 select 펼침 목록의 너비는 CSS로 제어 불가하고 가장 긴 옵션을 따라가므로,
+// 표시용 글자 수를 잘라서 너비를 잡는다.
+const POSITION_OPTION_MAX_LENGTH = 30;
+
+function truncateOptionLabel(value) {
+    const text = String(value ?? '');
+    return text.length > POSITION_OPTION_MAX_LENGTH
+        ? `${text.slice(0, POSITION_OPTION_MAX_LENGTH - 1)}…`
+        : text;
+}
+
+// 새/기존 폴더를 어느 위치에 둘지 고르는 필드. 폴더와 루트 낱개 항목 모두 기준으로
+// 삼을 수 있다. excludeKey는 자기 자신을, selectedKey는 현재 위치를 미리 선택한다.
+// 기준 노드가 없으면 null을 돌려주고 호출부는 필드를 그리지 않는다.
+function createFolderPositionField(layout, labelById = new Map(), {
+    excludeKey = '',
+    hintText = '(선택한 폴더·항목 바로 아래에 새 폴더가 생성됩니다)',
+    selectedKey = '',
+} = {}) {
+    const anchors = [];
+    for (const node of layout.root) {
+        const key = rootNodeKey(node);
+        if (key === excludeKey) continue;
+        if (node.type === 'folder') {
+            const folder = layout.folders.find(value => value.id === node.id);
+            if (folder) anchors.push({ key, text: `${folder.name} 폴더` });
+            continue;
+        }
+        // 라벨이 없는 항목은 화면에 보이지 않는 항목이므로 기준으로 제시하지 않는다.
+        const label = labelById.get(String(node.id));
+        if (label) anchors.push({ key, text: label });
+    }
+    if (!anchors.length) return null;
+
+    const field = document.createElement('label');
+    field.className = 'foldy-text-field foldy-position-field';
+    const text = document.createElement('span');
+    text.textContent = '위치';
+    const select = document.createElement('select');
+    select.className = 'text_pole';
+    const hint = document.createElement('small');
+    hint.className = 'foldy-field-hint';
+    hint.textContent = hintText;
+
+    const topOption = document.createElement('option');
+    topOption.value = '';
+    topOption.textContent = '맨 위';
+    select.append(topOption);
+
+    for (const anchor of anchors) {
+        const option = document.createElement('option');
+        option.value = anchor.key;
+        option.textContent = truncateOptionLabel(anchor.text);
+        option.title = anchor.text;
+        select.append(option);
+    }
+
+    if (selectedKey && anchors.some(anchor => anchor.key === selectedKey)) {
+        select.value = selectedKey;
+    }
+
+    field.append(text, select, hint);
+    return { field, select };
+}
+
+// folder(root 안의 폴더 노드) 바로 앞에 있는 root 노드의 key. 그게 이 폴더의
+// "현재 위치"에 해당하는 위치 select 값이다(맨 앞이면 빈 문자열 = 맨 위).
+function currentAnchorKeyForFolder(layout, folderId) {
+    const index = layout.root.findIndex(node => node.type === 'folder' && node.id === folderId);
+    if (index <= 0) return '';
+    return rootNodeKey(layout.root[index - 1]);
+}
+
+function labelMapFromCandidates(candidates) {
+    return new Map((candidates || [])
+        .filter(candidate => candidate?.id && candidate?.label)
+        .map(candidate => [String(candidate.id), candidate.label]));
+}
 
 export function createFolderDialogs({
     Popup,
@@ -35,6 +115,9 @@ export function createFolderDialogs({
         form.append(title, nameField);
 
         const selectable = candidates.filter(candidate => candidate?.id && candidate?.label);
+        const position = createFolderPositionField(layout, labelMapFromCandidates(selectable));
+        if (position) form.append(position.field);
+
         if (selectable.length) {
             const group = document.createElement('div');
             group.className = 'foldy-create-items';
@@ -79,7 +162,7 @@ export function createFolderDialogs({
         if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
         const itemIds = [...form.querySelectorAll('.foldy-create-items input[type="checkbox"]:checked')]
             .map(input => String(input.value));
-        return { name: nameInput.value.trim(), itemIds };
+        return { name: nameInput.value.trim(), itemIds, afterKey: position?.select.value || '' };
     }
 
     async function requestNewRegexFolder(defaultTypeKey = 'global') {
@@ -124,6 +207,8 @@ export function createFolderDialogs({
         nameLabel.textContent = '\uC774\uB984';
         nameField.append(nameLabel, nameInput);
 
+        const positionContainer = document.createElement('div');
+
         const group = document.createElement('div');
         group.className = 'foldy-create-items';
         const list = document.createElement('div');
@@ -131,10 +216,17 @@ export function createFolderDialogs({
         const selection = createSelectionToolbar(list, '\uD3F4\uB354\uC5D0 \uB123\uC744 \uD56D\uBAA9');
         group.append(selection.toolbar, list);
 
+        let positionSelect = null;
         const selectedTypeKey = () => form.querySelector('input[name="foldy_regex_folder_target"]:checked')?.value || 'global';
         const renderCandidates = () => {
+            const { layout, candidates } = regexFolderCreateContext(selectedTypeKey());
+
+            positionContainer.innerHTML = '';
+            const position = createFolderPositionField(layout, labelMapFromCandidates(candidates));
+            positionSelect = position?.select ?? null;
+            if (position) positionContainer.append(position.field);
+
             list.innerHTML = '';
-            const { candidates } = regexFolderCreateContext(selectedTypeKey());
             if (!candidates.length) {
                 const empty = document.createElement('div');
                 empty.className = 'foldy-empty-hint';
@@ -159,7 +251,7 @@ export function createFolderDialogs({
         };
 
         targetControls.addEventListener('input', renderCandidates);
-        form.append(title, targetField, nameField, group);
+        form.append(title, targetField, nameField, positionContainer, group);
         renderCandidates();
 
         const popup = new Popup(form, POPUP_TYPE.CONFIRM, '', {
@@ -185,10 +277,10 @@ export function createFolderDialogs({
         const typeKey = selectedTypeKey();
         const itemIds = [...form.querySelectorAll('.foldy-create-items input[type="checkbox"]:checked')]
             .map(input => String(input.value));
-        return { typeKey, name: nameInput.value.trim(), itemIds };
+        return { typeKey, name: nameInput.value.trim(), itemIds, afterKey: positionSelect?.value || '' };
     }
 
-    async function requestFolderSettings(layout, folder) {
+    async function requestFolderSettings(layout, folder, candidates = []) {
         const form = document.createElement('div');
         form.className = 'foldy-edit-form foldy-folder-settings-form';
 
@@ -208,6 +300,12 @@ export function createFolderDialogs({
         nameLabel.textContent = '\uC774\uB984';
         nameField.append(nameLabel, nameInput);
 
+        const position = createFolderPositionField(layout, labelMapFromCandidates(candidates), {
+            excludeKey: `folder:${folder.id}`,
+            hintText: '(\uC120\uD0DD\uD55C \uD3F4\uB354\u00B7\uD56D\uBAA9 \uBC14\uB85C \uC544\uB798\uB85C \uC62E\uACA8\uC9D1\uB2C8\uB2E4)',
+            selectedKey: currentAnchorKeyForFolder(layout, folder.id),
+        });
+
         const backgroundColor = createColorSetting('\uBC30\uACBD\uC0C9', folder.color, themeColorHex('--SmartThemeBlurTintColor'));
         const borderColor = createColorSetting('\uD14C\uB450\uB9AC\uC0C9', folder.borderColor, themeColorHex('--SmartThemeBorderColor'));
         const nameColor = createColorSetting('\uC774\uB984 \uC0C9\uC0C1', folder.nameColor, themeColorHex('--SmartThemeBodyColor', '#ffffff'));
@@ -220,7 +318,9 @@ export function createFolderDialogs({
         applyAllText.textContent = '\uB2E4\uB978 \uD3F4\uB354\uC5D0\uB3C4 \uC0C9\uC0C1 \uC801\uC6A9';
         applyAllField.append(applyAllCheckbox, applyAllText);
 
-        form.append(title, nameField, backgroundColor.field, borderColor.field, nameColor.field, applyAllField);
+        form.append(title, nameField);
+        if (position) form.append(position.field);
+        form.append(backgroundColor.field, borderColor.field, nameColor.field, applyAllField);
 
         const popup = new Popup(form, POPUP_TYPE.CONFIRM, '', {
             okButton: '\uC801\uC6A9',
@@ -257,6 +357,7 @@ export function createFolderDialogs({
             borderColor: borderColor.value(),
             nameColor: nameColor.value(),
             applyStyleToAll: applyAllCheckbox.checked,
+            afterKey: position?.select.value || '',
         };
     }
 
@@ -288,7 +389,8 @@ export function createFolderDialogs({
         for (const folder of layout.folders) {
             const option = document.createElement('option');
             option.value = folder.id;
-            option.textContent = folder.name;
+            option.textContent = truncateOptionLabel(folder.name);
+            option.title = folder.name;
             select.append(option);
         }
         select.value = currentValue;
@@ -334,7 +436,8 @@ export function createFolderDialogs({
         for (const source of sources) {
             const option = document.createElement('option');
             option.value = source.id;
-            option.textContent = `${source.name} (${source.items.length})`;
+            option.textContent = `${truncateOptionLabel(source.name)} (${source.items.length})`;
+            option.title = source.name;
             option.disabled = !source.items.length;
             sourceSelect.append(option);
         }
@@ -367,7 +470,8 @@ export function createFolderDialogs({
             for (const target of targetOptions) {
                 const option = document.createElement('option');
                 option.value = target.id;
-                option.textContent = target.name;
+                option.textContent = truncateOptionLabel(target.name);
+                option.title = target.name;
                 targetSelect.append(option);
             }
             const preferred = initialTargetId && initialTargetId !== currentSourceId ? initialTargetId : previousValue;
@@ -448,10 +552,8 @@ export function createFolderDialogs({
         if (kind === 'lore') {
             const host = element.querySelector('.inline-drawer-header');
             if (!host) return;
-            // 폴더가 하나도 없어도 기본 이동/복제/삭제 버튼을 항상 이 래퍼로 묶는다.
-            // 모바일 레이아웃에서 .inline-drawer-header가 고정 컬럼 CSS grid가 되는데,
-            // 이 래퍼가 없으면 해당 버튼들은 grid 셀이 지정되지 않아 자동 배치로 넘어가면서
-            // 항목 자체 컨트롤을 따라가지 못하고 좁은 왼쪽 컬럼에 여러 줄로 몰리게 된다.
+            // 모바일 grid 레이아웃에서 셀 미지정 버튼이 좁은 컬럼에 몰리지 않도록
+            // 기본 버튼들을 항상 이 래퍼로 묶는다(폴더가 없어도).
             let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
             if (!actions) {
                 actions = document.createElement('div');

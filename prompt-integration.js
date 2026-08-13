@@ -4,8 +4,10 @@ import {
 } from './folder-ui.js';
 import { createPromptBundleActions, createPromptSortables, promptOrderIds } from './prompt-bundles.js';
 import {
+    layoutFollowingExternalOrder,
     layoutWithAddedFolder,
     layoutWithItemsMovedToFolder,
+    layoutWithMovedFolder,
     layoutWithUpdatedFolder,
     normalizeLayout,
     orderItemsByLayout,
@@ -182,7 +184,14 @@ export function createPromptIntegration({
     async function enhancePromptList(manager) {
         const list = manager.listElement;
         if (!list || !featureEnabled('prompts')) return;
-        const { owner, layout } = readPromptLayout(manager);
+        const { owner, layout: storedLayout } = readPromptLayout(manager);
+        const layout = layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
+            onSkip: detail => debugLog('외부에서 바뀐 프롬프트 순서를 따라가지 않았습니다.', detail),
+        });
+        if (layout !== storedLayout) {
+            settings().layouts.prompts[owner] = layout;
+            saveSettingsDebounced();
+        }
         currentPromptLayout = layout;
         list.classList.add('foldy-prompt-root');
 
@@ -206,12 +215,17 @@ export function createPromptIntegration({
             const activeLayout = currentPromptLayout;
             const folder = activeLayout.folders.find(value => value.id === id);
             if (!folder) return;
-            const values = await requestFolderSettings(activeLayout, folder);
+            const candidates = [...itemMap.entries()].map(([itemId, element]) => ({
+                id: itemId,
+                label: element.querySelector('.completion_prompt_manager_prompt_name')?.textContent?.trim() || itemId,
+            }));
+            const values = await requestFolderSettings(activeLayout, folder, candidates);
             if (!values) return;
             if (rerenderIfPromptContextChanged(activeLayout)) return;
-            const { applyStyleToAll, ...folderValues } = values;
-            const result = layoutWithUpdatedFolder(activeLayout, folder.id, folderValues, { applyStyleToAll });
-            await persistPromptLayout(owner, result.layout, manager);
+            const { applyStyleToAll, afterKey, ...folderValues } = values;
+            const updated = layoutWithUpdatedFolder(activeLayout, folder.id, folderValues, { applyStyleToAll });
+            const moved = layoutWithMovedFolder(updated.layout, folder.id, afterKey);
+            await persistPromptLayout(owner, moved.layout, manager);
             rerender();
         };
         const onDelete = async id => {
@@ -313,7 +327,7 @@ export function createPromptIntegration({
             const values = await requestNewFolder(activeLayout, candidates);
             if (!values) return;
             if (rerenderIfPromptContextChanged(activeLayout)) return;
-            const result = layoutWithAddedFolder(activeLayout, values.name, values.itemIds);
+            const result = layoutWithAddedFolder(activeLayout, values.name, values.itemIds, undefined, { afterKey: values.afterKey });
             collapseNewFolder('prompt', owner, result.folder.id);
             await persistPromptLayout(owner, result.layout, manager);
             rerender();

@@ -96,17 +96,9 @@ function isFoldyMobileMenuActive() {
     return typeof window.matchMedia === 'function' && window.matchMedia(FOLDY_MOBILE_MENU_QUERY).matches;
 }
 
-// 좁은 화면에서는 폴더 메뉴를 헤더 안 CSS `position: fixed`에 맡기지 않고
-// <body>로 옮긴 뒤 JS로 위치를 계산한다. SillyTavern은 일부 모바일 드로어
-// (.drawer-content, #world_popup)에 자체 backdrop-filter를 주는데, 스펙상
-// 이렇게 되면 뷰포트가 아니라 그 드로어 자신이 fixed 자식 요소의 containing
-// block이 되어 버린다. 그 상태에서 `position: fixed; top: auto` 메뉴는
-// 뷰포트가 아니라 드로어 박스를 기준으로 앉게 되고, 실제 기기(동적 툴바 /
-// dvh 이슈)에서는 드로어 하단에 눌러붙거나 드로어 자체 overflow에 잘려
-// 아예 화면 밖으로 사라진다 - 이게 "화면 아래쪽에 고정" 증상이고, 드로어를
-// 더 세게 잘라내는 프롬프트 매니저에서는 아예 클릭도 안 되는 원인이다.
-// body에는 그런 필터가 없으므로, body에 매달린 fixed 메뉴는 항상 실제
-// 뷰포트를 기준으로 계산된다.
+// 좁은 화면에서는 메뉴를 <body>로 옮겨 JS로 위치를 계산한다. 일부 ST 드로어는
+// backdrop-filter 때문에 자신이 fixed 자식의 containing block이 되어버려서,
+// 메뉴가 뷰포트가 아니라 드로어 기준으로 앉아 화면 밖으로 잘리거나 클릭이 안 된다.
 function openFoldyFolderMenu(anchor, actions) {
     if (!isFoldyMobileMenuActive()) return;
     const header = actions.parentElement;

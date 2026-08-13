@@ -7,8 +7,7 @@ export function generateUUID() {
         return globalThis.crypto.randomUUID();
     }
 
-    // 이 대체 구현은 crypto.randomUUID가 없는 구형 WebView에서만 쓰인다. 로컬
-    // 폴더 ID끼리 충돌할 가능성은 극히 낮지만, 암호학적으로 안전하지는 않다.
+    // crypto.randomUUID가 없는 구형 환경용 대체 구현. 암호학적으로 안전하지 않음.
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, value => {
         const random = Math.floor(Math.random() * 16);
         return (value === 'x' ? random : (random & 0x3) | 0x8).toString(16);
@@ -68,9 +67,7 @@ function uniqueFolderName(name, usedNames) {
     return candidate;
 }
 
-// 저장된 폴더 레이아웃을 SillyTavern의 현재 항목 순서와 맞춰 조정한다. 이미
-// 루트 노드에 속한 항목이 기준(owner) 위치를 정하고, 빠진 항목은 가장 가까운
-// 이전 기준 뒤나 다음 기준 앞에 끼워 넣는다.
+// 저장된 레이아웃을 현재 항목 순서에 맞춰 조정한다. 빠진 항목은 가장 가까운 이웃 옆에 끼워 넣는다.
 export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolders = true, onFolderRenamed = null } = {}) {
     const validIds = itemIds.map(String);
     const validSet = new Set(validIds);
@@ -132,8 +129,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         folders = folders.filter(folder => placedFolders.has(folder.id));
     }
 
-    // 결과 레이아웃에 실제로 남아있는 항목만 "배치됨"으로 친다. 특히 주인 없는
-    // 폴더를 버릴 때는 그 안의 항목들을 풀어줘야 루트로 되돌아갈 수 있다.
+    // 실제 남은 항목만 배치됨으로 표시(주인 없는 폴더를 버릴 때 내부 항목을 루트로 풀어주기 위함).
     placedItems.clear();
     for (const folder of folders) {
         for (const itemId of folder.items) placedItems.add(itemId);
@@ -143,6 +139,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
     }
 
     const ownerIndices = new Map();
+    const folderByItemId = new Map();
     root.forEach((node, rootIndex) => {
         if (node.type === 'item') {
             ownerIndices.set(node.id, rootIndex);
@@ -150,31 +147,57 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         }
         for (const itemId of folderMap.get(node.id)?.items ?? []) {
             ownerIndices.set(itemId, rootIndex);
+            folderByItemId.set(itemId, node.id);
         }
     });
 
-    // 새로 발견된 항목은 현재 ST 순서 기준으로 가장 가까운 이웃 옆에 붙여 두어,
-    // SillyTavern이 항목을 추가해도 폴더 묶음이 흐트러지지 않게 한다.
+    // 새 항목은 현재 순서상 가장 가까운 이웃 옆에 붙여 폴더 묶음이 흐트러지지 않게 한다.
     const previousOwners = [];
+    const previousKnownIds = [];
     let previousOwner = -1;
+    let previousKnownId = '';
     for (let index = 0; index < validIds.length; index++) {
         previousOwners[index] = previousOwner;
+        previousKnownIds[index] = previousKnownId;
         const ownerIndex = ownerIndices.get(validIds[index]);
-        if (ownerIndex !== undefined) previousOwner = ownerIndex;
+        if (ownerIndex !== undefined) {
+            previousOwner = ownerIndex;
+            previousKnownId = validIds[index];
+        }
     }
 
     const nextOwners = [];
+    const nextKnownIds = [];
     let nextOwner = -1;
+    let nextKnownId = '';
     for (let index = validIds.length - 1; index >= 0; index--) {
         nextOwners[index] = nextOwner;
+        nextKnownIds[index] = nextKnownId;
         const ownerIndex = ownerIndices.get(validIds[index]);
-        if (ownerIndex !== undefined) nextOwner = ownerIndex;
+        if (ownerIndex !== undefined) {
+            nextOwner = ownerIndex;
+            nextKnownId = validIds[index];
+        }
     }
 
     const insertions = new Map();
+    const folderInsertions = new Map();
     for (let index = 0; index < validIds.length; index++) {
         const itemId = validIds[index];
         if (placedItems.has(itemId)) continue;
+
+        // 앞뒤 이웃이 같은 폴더면 그 안에, 아니면 루트에 둔다(마지막 폴더로 빨려 들어가는 것 방지).
+        const absorbingFolderId = absorbingFolder(previousKnownIds[index], nextKnownIds[index], folderByItemId);
+        if (absorbingFolderId) {
+            const folder = folderMap.get(absorbingFolderId);
+            const at = folder.items.indexOf(previousKnownIds[index]) + 1;
+            if (!folderInsertions.has(absorbingFolderId)) folderInsertions.set(absorbingFolderId, new Map());
+            const byIndex = folderInsertions.get(absorbingFolderId);
+            if (!byIndex.has(at)) byIndex.set(at, []);
+            byIndex.get(at).push(itemId);
+            placedItems.add(itemId);
+            continue;
+        }
 
         const insertionIndex = previousOwners[index] !== -1
             ? previousOwners[index] + 1
@@ -190,7 +213,151 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         .sort(([left], [right]) => right - left)
         .forEach(([index, nodes]) => root.splice(index, 0, ...nodes));
 
+    for (const [folderId, byIndex] of folderInsertions) {
+        const folder = folderMap.get(folderId);
+        [...byIndex.entries()]
+            .sort(([left], [right]) => right - left)
+            .forEach(([at, ids]) => folder.items.splice(at, 0, ...ids));
+    }
+
     return { version: FOLDY_VERSION, root, folders };
+}
+
+// 앞 이웃과 뒤 이웃이 같은 폴더에 있을 때만 그 폴더 id를 돌려준다.
+function absorbingFolder(previousId, nextId, folderByItemId) {
+    if (!previousId || !nextId) return '';
+    const folderId = folderByItemId.get(previousId);
+    if (!folderId || folderByItemId.get(nextId) !== folderId) return '';
+    return folderId;
+}
+
+// 값이 커지는 가장 긴 부분 수열의 인덱스 목록. 순서가 바뀐 항목을 최소로 골라내는 데 쓴다.
+function longestIncreasingSubsequenceIndices(values) {
+    const tails = [];
+    const parents = new Array(values.length).fill(-1);
+    for (let index = 0; index < values.length; index++) {
+        let low = 0;
+        let high = tails.length;
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if (values[tails[middle]] < values[index]) low = middle + 1;
+            else high = middle;
+        }
+        if (low > 0) parents[index] = tails[low - 1];
+        if (low === tails.length) tails.push(index);
+        else tails[low] = index;
+    }
+
+    const result = [];
+    let cursor = tails.length ? tails[tails.length - 1] : -1;
+    while (cursor !== -1) {
+        result.push(cursor);
+        cursor = parents[cursor];
+    }
+    return result.reverse();
+}
+
+function rootNodeIdentity(node) {
+    return `${node.type}␟${node.id}`;
+}
+
+// 외부(다른 확장/ST)가 바꾼 항목 순서를 레이아웃에 반영한다. 폴더 소속은 유지한 채 움직인
+// 항목만 옮기며, 이동 개수가 maxMoves를 넘으면(프리셋 교체 등) 따라가지 않는다.
+export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3, onSkip = null } = {}) {
+    const current = flattenLayout(layout);
+    const external = [];
+    const externalSet = new Set();
+    for (const value of Array.isArray(externalIds) ? externalIds : []) {
+        const id = String(value);
+        if (!id || externalSet.has(id)) continue;
+        externalSet.add(id);
+        external.push(id);
+    }
+
+    // 항목 구성 자체가 다르면 normalizeLayout이 처리할 일이므로 손대지 않는다.
+    if (current.length !== external.length || !current.every(id => externalSet.has(id))) return layout;
+    if (current.every((id, index) => id === external[index])) return layout;
+
+    const folderMap = new Map((layout.folders || []).map(folder => [String(folder.id), folder]));
+    const ownerByItemId = new Map();
+    for (const node of layout.root || []) {
+        if (node.type === 'item') {
+            ownerByItemId.set(String(node.id), '');
+            continue;
+        }
+        for (const itemId of folderMap.get(String(node.id))?.items ?? []) {
+            ownerByItemId.set(String(itemId), String(node.id));
+        }
+    }
+
+    const positionInCurrent = new Map(current.map((id, index) => [id, index]));
+    const keptIndices = new Set(longestIncreasingSubsequenceIndices(external.map(id => positionInCurrent.get(id))));
+    const movedIds = new Set(external.filter((_, index) => !keptIndices.has(index)));
+    if (movedIds.size > maxMoves) {
+        onSkip?.({ reason: 'too-many-moves', movedCount: movedIds.size, movedIds: [...movedIds] });
+        return layout;
+    }
+
+    // 움직인 항목의 새 소속은 제자리에 남은 이웃을 기준으로 정한다.
+    const ownerForMoved = new Map();
+    for (let index = 0; index < external.length; index++) {
+        const id = external[index];
+        if (!movedIds.has(id)) continue;
+        let previousId = '';
+        for (let cursor = index - 1; cursor >= 0; cursor--) {
+            if (movedIds.has(external[cursor])) continue;
+            previousId = external[cursor];
+            break;
+        }
+        let nextId = '';
+        for (let cursor = index + 1; cursor < external.length; cursor++) {
+            if (movedIds.has(external[cursor])) continue;
+            nextId = external[cursor];
+            break;
+        }
+        ownerForMoved.set(id, absorbingFolder(previousId, nextId, ownerByItemId));
+    }
+
+    const folders = (layout.folders || []).map(folder => ({ ...folder, items: [] }));
+    const nextFolderMap = new Map(folders.map(folder => [String(folder.id), folder]));
+    const root = [];
+    const emittedFolders = new Set();
+    for (const id of external) {
+        const owner = movedIds.has(id) ? ownerForMoved.get(id) : (ownerByItemId.get(id) ?? '');
+        const folder = owner ? nextFolderMap.get(owner) : null;
+        if (!folder) {
+            root.push({ type: 'item', id });
+            continue;
+        }
+        if (!emittedFolders.has(owner)) {
+            emittedFolders.add(owner);
+            root.push({ type: 'folder', id: owner });
+        }
+        folder.items.push(id);
+    }
+
+    // 빈 폴더는 외부 순서에 나타나지 않으므로, 원래 루트에서의 앞 이웃 뒤에 되돌려 놓는다.
+    let anchor = '';
+    for (const node of layout.root || []) {
+        const id = String(node.id);
+        if (node.type === 'folder' && !emittedFolders.has(id)) {
+            const at = anchor ? root.findIndex(value => rootNodeIdentity(value) === anchor) + 1 : 0;
+            root.splice(at, 0, { type: 'folder', id });
+            anchor = rootNodeIdentity({ type: 'folder', id });
+            continue;
+        }
+        const identity = rootNodeIdentity({ type: node.type, id });
+        if (root.some(value => rootNodeIdentity(value) === identity)) anchor = identity;
+    }
+
+    const next = { version: FOLDY_VERSION, root, folders };
+    // 폴더가 쪼개지는 등 외부 순서를 그대로 재현하지 못했다면 건드리지 않는다.
+    const flattened = flattenLayout(next);
+    if (flattened.length !== external.length || !flattened.every((id, index) => id === external[index])) {
+        onSkip?.({ reason: 'order-mismatch', movedIds: [...movedIds] });
+        return layout;
+    }
+    return next;
 }
 
 export function layoutFromTree(nodes, sourceLayout, itemIds = [], {
@@ -245,10 +412,8 @@ export function rootNodeKey(node) {
     return `${node?.type}:${node?.id}`;
 }
 
-// 루트 노드 중 한 페이지만 DOM에 있을 때는 DOM만으로 전체 레이아웃을 알 수
-// 없다. 그 페이지의 DOM 노드를 전체 루트 순서에 다시 끼워 넣고, 페이지 밖
-// 폴더는 "보존됨"으로 표시해서 layoutFromTree가 그 폴더를 비었다고 보지
-// 않고 저장된 항목을 그대로 유지하게 한다.
+// 한 페이지만 DOM에 있을 때, 그 페이지 노드를 전체 루트 순서에 다시 끼워 넣는다.
+// 페이지 밖 폴더는 "보존됨"으로 표시해 비었다고 오인하지 않게 한다.
 export function mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) {
     const pageKeys = new Set(pageNodeKeys || []);
     if (!pageKeys.size) return domNodes;
@@ -271,9 +436,7 @@ export function mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) {
 }
 
 export function remapImportedLayout(layout, itemIdMap, createFolderId = generateUUID) {
-    // 루트에서 닿을 수 있는 폴더만 의미가 있다. layoutFromTree의 정규화와
-    // 마찬가지로, 불러오기 재매핑 과정에서 어디에도 연결되지 않은 폴더 객체는
-    // 버려진다.
+    // 루트에서 연결된 폴더만 유지한다(고아 폴더는 버려짐).
     const rootedFolderIds = new Set((layout?.root || [])
         .filter(node => node?.type === 'folder')
         .map(node => String(node.id)));
@@ -411,8 +574,7 @@ export function createRenderGate() {
     };
 }
 
-// 레이아웃 변환 헬퍼들은 항상 새 레이아웃 객체를 반환한다. 호출부는 다이얼로그나
-// 렌더링이 대기하는 동안 이 객체 identity를 값싼 "낡음(staleness)" 검사로 쓴다.
+// 항상 새 레이아웃 객체를 반환한다. 호출부는 이 identity를 값싼 낡음(staleness) 검사로 쓴다.
 export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
     const id = String(itemId);
     const currentRootIndex = layout.root.findIndex(node => node.type === 'item' && node.id === id);
@@ -480,25 +642,57 @@ export function layoutWithItemsMovedToFolder(layout, itemIds, folderId) {
     };
 }
 
-export function layoutWithAddedFolder(layout, folderName, itemIds = [], createFolderId = generateUUID) {
+// afterKey 노드가 remainingRoot에서 이미 빠졌다면(옮겨진 항목이거나 자기 자신) 원래 그
+// 앞에 남아있던 가장 가까운 노드 뒤에 대신 꽂는다. 못 찾으면 맨 위(0).
+function insertionIndexAfter(originalRoot, remainingRoot, afterKey) {
+    if (!afterKey) return 0;
+    const originalIndex = originalRoot.findIndex(node => rootNodeKey(node) === afterKey);
+    if (originalIndex === -1) return 0;
+
+    let insertAt = 0;
+    for (let index = 0; index <= originalIndex; index++) {
+        const key = rootNodeKey(originalRoot[index]);
+        const remainingIndex = remainingRoot.findIndex(node => rootNodeKey(node) === key);
+        if (remainingIndex !== -1) insertAt = remainingIndex + 1;
+    }
+    return insertAt;
+}
+
+export function layoutWithAddedFolder(layout, folderName, itemIds = [], createFolderId = generateUUID, { afterKey = '' } = {}) {
     const selected = new Set(itemIds.map(String));
     const folder = { id: createFolderId(), name: folderName, color: '', items: [...selected] };
+    const remainingRoot = layout.root.filter(node => node?.type !== 'item' || !selected.has(String(node.id)));
+    const insertAt = insertionIndexAfter(layout.root, remainingRoot, afterKey);
+
+    const root = [...remainingRoot];
+    root.splice(insertAt, 0, { type: 'folder', id: folder.id });
     return {
         changed: true,
         folder,
-        layout: {
-            ...layout,
-            folders: [...layout.folders, folder],
-            root: [
-                { type: 'folder', id: folder.id },
-                ...layout.root.filter(node => node?.type !== 'item' || !selected.has(String(node.id))),
-            ],
-        },
+        layout: { ...layout, folders: [...layout.folders, folder], root },
     };
 }
 
-// 폴더를 수정할 때는 레이아웃 객체를 반드시 새로 만들어야, 열려 있는 다이얼로그가
-// 대기하는 동안 다른 작업이 자신이 참조하던 레이아웃을 바꿨음을 감지할 수 있다.
+// 폴더를 root 안 다른 위치로 옮긴다. 내용물은 그대로 두고 노드 하나만 옮기므로
+// layoutWithAddedFolder보다 단순하다.
+export function layoutWithMovedFolder(layout, folderId, afterKey = '') {
+    const id = String(folderId ?? '');
+    const folderKey = `folder:${id}`;
+    if (!layout.folders.some(folder => folder.id === id)) return { changed: false, layout };
+    if (afterKey === folderKey) return { changed: false, layout };
+
+    const remainingRoot = layout.root.filter(node => rootNodeKey(node) !== folderKey);
+    const insertAt = insertionIndexAfter(layout.root, remainingRoot, afterKey);
+
+    const root = [...remainingRoot];
+    root.splice(insertAt, 0, { type: 'folder', id });
+    if (root.length === layout.root.length && root.every((node, index) => rootNodeKey(node) === rootNodeKey(layout.root[index]))) {
+        return { changed: false, layout };
+    }
+    return { changed: true, layout: { ...layout, root } };
+}
+
+// 항상 새 레이아웃 객체를 반환해, 대기 중인 다이얼로그가 낡음을 감지할 수 있게 한다.
 export function layoutWithUpdatedFolder(layout, folderId, values = {}, { applyStyleToAll = false } = {}) {
     const id = String(folderId ?? '');
     const source = layout.folders.find(folder => folder.id === id);
