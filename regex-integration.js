@@ -387,7 +387,7 @@ export function createRegexIntegration({
             const values = await requestNewRegexFolder(typeKey);
             if (!values) return;
             const { owner: targetOwner, layout: targetLayout } = readRegexLayout(values.typeKey);
-            const result = layoutWithAddedFolder(targetLayout, values.name, values.itemIds);
+            const result = layoutWithAddedFolder(targetLayout, values.name, values.itemIds, undefined, { afterKey: values.afterKey });
             collapseNewFolder('regex', `${values.typeKey}:${targetOwner}`, result.folder.id);
             await persistRegexLayout(values.typeKey, targetOwner, result.layout, false);
             rerender();

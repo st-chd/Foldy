@@ -452,6 +452,9 @@ const foldyDataCleanup = createFoldyDataCleanup({
     regexTypes: REGEX_TYPES,
     getCharacters: () => characters,
     getWorldNames: () => world_names,
+    accountStorage,
+    sortOrderKey: SORT_ORDER_KEY,
+    loreSortValue: LORE_SORT_VALUE,
 });
 
 const requestClearFoldyData = createClearDataDialog({
@@ -744,7 +747,7 @@ async function createLorebookFolder() {
     const values = await requestNewFolder(layout, candidates);
     if (!values) return;
 
-    const result = layoutWithAddedFolder(layout, values.name, values.itemIds);
+    const result = layoutWithAddedFolder(layout, values.name, values.itemIds, undefined, { afterKey: values.afterKey });
     collapseNewFolder('lore', owner, result.folder.id);
     await persistLoreLayout(owner, result.layout);
 

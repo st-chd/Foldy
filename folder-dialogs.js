@@ -3,7 +3,38 @@ import {
     hasDuplicateFolderName,
     layoutWithItemMovedToFolder,
     rootItemIds,
+    rootNodeKey,
 } from './model.js';
+
+function createFolderPositionField(layout) {
+    const field = document.createElement('label');
+    field.className = 'foldy-text-field foldy-position-field';
+    const text = document.createElement('span');
+    text.textContent = '위치';
+    const select = document.createElement('select');
+    select.className = 'text_pole';
+    const hint = document.createElement('small');
+    hint.className = 'foldy-field-hint';
+    hint.textContent = '(해당 폴더 아래에 새 폴더가 생성됩니다)';
+
+    const topOption = document.createElement('option');
+    topOption.value = '';
+    topOption.textContent = '맨 위';
+    select.append(topOption);
+
+    for (const node of layout.root) {
+        if (node.type !== 'folder') continue;
+        const folder = layout.folders.find(value => value.id === node.id);
+        if (!folder) continue;
+        const option = document.createElement('option');
+        option.value = rootNodeKey(node);
+        option.textContent = `${folder.name} 폴더 아래`;
+        select.append(option);
+    }
+
+    field.append(text, select, hint);
+    return { field, select };
+}
 
 export function createFolderDialogs({
     Popup,
@@ -33,6 +64,10 @@ export function createFolderDialogs({
         nameField.append(nameLabel, nameInput);
 
         form.append(title, nameField);
+
+        const hasFolders = layout.root.some(node => node.type === 'folder');
+        const position = hasFolders ? createFolderPositionField(layout) : null;
+        if (position) form.append(position.field);
 
         const selectable = candidates.filter(candidate => candidate?.id && candidate?.label);
         if (selectable.length) {
@@ -79,7 +114,7 @@ export function createFolderDialogs({
         if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
         const itemIds = [...form.querySelectorAll('.foldy-create-items input[type="checkbox"]:checked')]
             .map(input => String(input.value));
-        return { name: nameInput.value.trim(), itemIds };
+        return { name: nameInput.value.trim(), itemIds, afterKey: position?.select.value || '' };
     }
 
     async function requestNewRegexFolder(defaultTypeKey = 'global') {
@@ -124,6 +159,8 @@ export function createFolderDialogs({
         nameLabel.textContent = '\uC774\uB984';
         nameField.append(nameLabel, nameInput);
 
+        const positionContainer = document.createElement('div');
+
         const group = document.createElement('div');
         group.className = 'foldy-create-items';
         const list = document.createElement('div');
@@ -131,10 +168,20 @@ export function createFolderDialogs({
         const selection = createSelectionToolbar(list, '\uD3F4\uB354\uC5D0 \uB123\uC744 \uD56D\uBAA9');
         group.append(selection.toolbar, list);
 
+        let positionSelect = null;
         const selectedTypeKey = () => form.querySelector('input[name="foldy_regex_folder_target"]:checked')?.value || 'global';
         const renderCandidates = () => {
+            const { layout, candidates } = regexFolderCreateContext(selectedTypeKey());
+
+            positionContainer.innerHTML = '';
+            positionSelect = null;
+            if (layout.root.some(node => node.type === 'folder')) {
+                const position = createFolderPositionField(layout);
+                positionSelect = position.select;
+                positionContainer.append(position.field);
+            }
+
             list.innerHTML = '';
-            const { candidates } = regexFolderCreateContext(selectedTypeKey());
             if (!candidates.length) {
                 const empty = document.createElement('div');
                 empty.className = 'foldy-empty-hint';
@@ -159,7 +206,7 @@ export function createFolderDialogs({
         };
 
         targetControls.addEventListener('input', renderCandidates);
-        form.append(title, targetField, nameField, group);
+        form.append(title, targetField, nameField, positionContainer, group);
         renderCandidates();
 
         const popup = new Popup(form, POPUP_TYPE.CONFIRM, '', {
@@ -185,7 +232,7 @@ export function createFolderDialogs({
         const typeKey = selectedTypeKey();
         const itemIds = [...form.querySelectorAll('.foldy-create-items input[type="checkbox"]:checked')]
             .map(input => String(input.value));
-        return { typeKey, name: nameInput.value.trim(), itemIds };
+        return { typeKey, name: nameInput.value.trim(), itemIds, afterKey: positionSelect?.value || '' };
     }
 
     async function requestFolderSettings(layout, folder) {

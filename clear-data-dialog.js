@@ -199,6 +199,9 @@ export function createFoldyDataCleanup({
     getCharacters,
     getWorldNames,
     queryPresetManagerSelects = () => globalThis.document?.querySelectorAll?.('select[data-preset-manager-for]') || [],
+    accountStorage = null,
+    sortOrderKey = null,
+    loreSortValue = null,
 }) {
     function presetOwnersForApi(apiId) {
         const manager = getPresetManager(apiId);
@@ -487,6 +490,12 @@ export function createFoldyDataCleanup({
         if (scope === 'all' || scope === 'lorebooks') {
             state.layouts.lorebooks = {};
             state.collapsed.lore = {};
+            // Foldy는 로어북 폴더 정렬을 켤 때 ST 코어의 world_info_sort_order 값을
+            // 자체 네임스페이스 밖(accountStorage)에 남긴다. 전체 삭제 시 그 값도
+            // 되돌리지 않으면 확장을 지워도 잔여 설정으로 남는다.
+            if (accountStorage && sortOrderKey && accountStorage.getItem(sortOrderKey) === loreSortValue) {
+                accountStorage.removeItem(sortOrderKey);
+            }
         }
         if (scope === 'all' || scope === 'regex') {
             state.layouts.regex = { global: {}, scoped: {}, preset: {} };
