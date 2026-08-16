@@ -21,6 +21,10 @@ function valueType(value) {
     return Array.isArray(value) ? 'array' : typeof value;
 }
 
+export const POSITION_FILTER_KINDS = ['prompts', 'lorebooks', 'regex'];
+export const POSITION_FILTER_VALUES = ['folders', 'items', 'all'];
+const DEFAULT_POSITION_FILTER = 'folders';
+
 export function createFoldySettingsStore({
     extensionSettings,
     settingsKey = 'foldy',
@@ -61,6 +65,7 @@ export function createFoldySettingsStore({
         const features = ensureObject('features');
         const layouts = ensureObject('layouts');
         const collapsed = ensureObject('collapsed');
+        const ui = ensureObject('ui');
         const ensureChildObject = (parent, key, label) => {
             if (!parent[key] || typeof parent[key] !== 'object' || Array.isArray(parent[key])) {
                 preserveCorrupted(value, label, parent[key]);
@@ -72,6 +77,10 @@ export function createFoldySettingsStore({
         features.prompts ??= true;
         features.lorebooks ??= true;
         features.regex ??= true;
+        const positionFilter = ensureChildObject(ui, 'positionFilter', 'ui.positionFilter');
+        for (const kind of POSITION_FILTER_KINDS) {
+            if (!POSITION_FILTER_VALUES.includes(positionFilter[kind])) positionFilter[kind] = DEFAULT_POSITION_FILTER;
+        }
         ensureChildObject(layouts, 'prompts', 'layouts.prompts');
         ensureChildObject(layouts, 'lorebooks', 'layouts.lorebooks');
         const regexLayouts = ensureChildObject(layouts, 'regex', 'layouts.regex');

@@ -69,9 +69,8 @@ export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
     return layoutFromTree(nodes, sourceLayout, allIds, options);
 }
 
-// folder-ui.js의 openFoldyFolderMenu/closeFoldyFolderMenu는 모바일에서 폴더 메뉴를
-// document.body로 옮겼다 되돌린다. 그 이동만 담긴 mutation은 실제 콘텐츠 변경이
-// 아니므로 regexObserver가 재렌더링할 이유가 아니다.
+// 모바일 폴더 메뉴가 document.body로 옮겨졌다 돌아오는 mutation(openFoldyFolderMenu)은
+// 실제 콘텐츠 변경이 아니므로 regexObserver가 반응할 이유가 아니다.
 export function isFoldyFolderActionsMutation(mutation) {
     if (mutation.type !== 'childList') return false;
     const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
@@ -308,7 +307,7 @@ export function createRegexIntegration({
                 id: scriptId,
                 label: script?.scriptName || scriptId,
             }));
-            const values = await requestFolderSettings(layout, folder, candidates);
+            const values = await requestFolderSettings(layout, folder, candidates, { kind: 'regex' });
             if (!values) return;
             if (rerenderIfRegexContextChanged()) return;
             const { applyStyleToAll, afterKey, ...folderValues } = values;
@@ -463,10 +462,7 @@ export function createRegexIntegration({
             return;
         }
         regexObserver = new MutationObserver(mutations => {
-            // 모바일 폴더 메뉴는 열고 닫을 때 .foldy-folder-actions를 body로/에서
-            // 옮긴다(folder-ui.js의 openFoldyFolderMenu). 그 이동 자체도
-            // #regex_container 하위의 childList 변경이라 옵저버에 잡히는데,
-            // 그대로 재렌더링하면 방금 연 메뉴가 즉시 다시 그려지며 닫혀버린다.
+            // 이 mutation까지 재렌더링하면 방금 연 모바일 폴더 메뉴가 바로 닫혀버린다.
             if (mutations.length && mutations.every(isFoldyFolderActionsMutation)) return;
             if (regexRenderGate.isRunning() || sortingRegex || regexRenderGate.isQueued()) return;
             regexRenderGate.queue(() => {
