@@ -45,7 +45,7 @@ function createFolderPositionField(layout, labelById = new Map(), {
         if (key === excludeKey) continue;
         if (node.type === 'folder') {
             const folder = layout.folders.find(value => value.id === node.id);
-            if (folder) anchors.push({ key, text: `${folder.name} 폴더`, isFolder: true });
+            if (folder) anchors.push({ key, text: `[폴더] ${folder.name}`, isFolder: true });
             continue;
         }
         // 라벨이 없는 항목은 화면에 보이지 않는 항목이므로 기준으로 제시하지 않는다.
