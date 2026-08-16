@@ -17,13 +17,27 @@ function truncateOptionLabel(value) {
         : text;
 }
 
-// 새/기존 폴더를 어느 위치에 둘지 고르는 필드. 폴더와 루트 낱개 항목 모두 기준으로
-// 삼을 수 있다. excludeKey는 자기 자신을, selectedKey는 현재 위치를 미리 선택한다.
-// 기준 노드가 없으면 null을 돌려주고 호출부는 필드를 그리지 않는다.
+const POSITION_FILTER_OPTIONS = [
+    { value: 'folders', label: '폴더만' },
+    { value: 'items', label: '폴더제외' },
+    { value: 'all', label: '모두보기' },
+];
+
+function anchorMatchesFilter(anchor, filter) {
+    if (filter === 'folders') return anchor.isFolder;
+    if (filter === 'items') return !anchor.isFolder;
+    return true;
+}
+
+// 새/기존 폴더의 위치를 고르는 필드(기준 노드가 없으면 null). filterPref로 폴더만/
+// 폴더제외/모두보기 select를 같이 그린다. selectedKey가 지금 필터로는 안 보이는
+// 노드를 가리키면(예: 현재 위치가 항목) 선택이 사라지지 않도록 처음엔 "모두보기"로 연다.
 function createFolderPositionField(layout, labelById = new Map(), {
     excludeKey = '',
     hintText = '(선택한 폴더·항목 바로 아래에 새 폴더가 생성됩니다)',
     selectedKey = '',
+    filterPref = 'all',
+    onFilterChange = null,
 } = {}) {
     const anchors = [];
     for (const node of layout.root) {
@@ -31,43 +45,72 @@ function createFolderPositionField(layout, labelById = new Map(), {
         if (key === excludeKey) continue;
         if (node.type === 'folder') {
             const folder = layout.folders.find(value => value.id === node.id);
-            if (folder) anchors.push({ key, text: `${folder.name} 폴더` });
+            if (folder) anchors.push({ key, text: `[폴더] ${folder.name}`, isFolder: true });
             continue;
         }
         // 라벨이 없는 항목은 화면에 보이지 않는 항목이므로 기준으로 제시하지 않는다.
         const label = labelById.get(String(node.id));
-        if (label) anchors.push({ key, text: label });
+        if (label) anchors.push({ key, text: label, isFolder: false });
     }
     if (!anchors.length) return null;
+
+    const selectedAnchor = selectedKey ? anchors.find(anchor => anchor.key === selectedKey) : null;
+    const initialFilter = selectedAnchor && !anchorMatchesFilter(selectedAnchor, filterPref) ? 'all' : filterPref;
 
     const field = document.createElement('label');
     field.className = 'foldy-text-field foldy-position-field';
     const text = document.createElement('span');
     text.textContent = '위치';
+
+    const controls = document.createElement('span');
+    controls.className = 'foldy-position-controls';
+
     const select = document.createElement('select');
     select.className = 'text_pole';
+
+    const filterSelect = document.createElement('select');
+    filterSelect.className = 'text_pole foldy-position-filter';
+    for (const option of POSITION_FILTER_OPTIONS) {
+        const el = document.createElement('option');
+        el.value = option.value;
+        el.textContent = option.label;
+        filterSelect.append(el);
+    }
+    filterSelect.value = initialFilter;
+
     const hint = document.createElement('small');
     hint.className = 'foldy-field-hint';
     hint.textContent = hintText;
 
-    const topOption = document.createElement('option');
-    topOption.value = '';
-    topOption.textContent = '맨 위';
-    select.append(topOption);
+    const renderOptions = () => {
+        const preferred = select.value || selectedKey;
+        select.innerHTML = '';
+        const topOption = document.createElement('option');
+        topOption.value = '';
+        topOption.textContent = '맨 위';
+        select.append(topOption);
 
-    for (const anchor of anchors) {
-        const option = document.createElement('option');
-        option.value = anchor.key;
-        option.textContent = truncateOptionLabel(anchor.text);
-        option.title = anchor.text;
-        select.append(option);
-    }
+        const visibleAnchors = anchors.filter(anchor => anchorMatchesFilter(anchor, filterSelect.value));
+        for (const anchor of visibleAnchors) {
+            const option = document.createElement('option');
+            option.value = anchor.key;
+            option.textContent = truncateOptionLabel(anchor.text);
+            option.title = anchor.text;
+            select.append(option);
+        }
 
-    if (selectedKey && anchors.some(anchor => anchor.key === selectedKey)) {
-        select.value = selectedKey;
-    }
+        select.value = [...select.options].some(option => option.value === preferred) ? preferred : '';
+    };
 
-    field.append(text, select, hint);
+    filterSelect.addEventListener('input', () => {
+        onFilterChange?.(filterSelect.value);
+        renderOptions();
+    });
+
+    controls.append(select, filterSelect);
+    renderOptions();
+
+    field.append(text, controls, hint);
     return { field, select };
 }
 
@@ -92,8 +135,15 @@ export function createFolderDialogs({
     withErrorToast,
     regexFolderTargets = [],
     regexFolderCreateContext = null,
+    getPositionFilterPref = () => 'all',
+    setPositionFilterPref = () => {},
 }) {
-    async function requestNewFolder(layout, candidates = []) {
+    const positionFieldPrefs = kind => ({
+        filterPref: getPositionFilterPref(kind),
+        onFilterChange: value => setPositionFilterPref(kind, value),
+    });
+
+    async function requestNewFolder(layout, candidates = [], { kind = null } = {}) {
         const form = document.createElement('div');
         form.className = 'foldy-edit-form foldy-create-form';
 
@@ -115,7 +165,7 @@ export function createFolderDialogs({
         form.append(title, nameField);
 
         const selectable = candidates.filter(candidate => candidate?.id && candidate?.label);
-        const position = createFolderPositionField(layout, labelMapFromCandidates(selectable));
+        const position = createFolderPositionField(layout, labelMapFromCandidates(selectable), positionFieldPrefs(kind));
         if (position) form.append(position.field);
 
         if (selectable.length) {
@@ -222,7 +272,7 @@ export function createFolderDialogs({
             const { layout, candidates } = regexFolderCreateContext(selectedTypeKey());
 
             positionContainer.innerHTML = '';
-            const position = createFolderPositionField(layout, labelMapFromCandidates(candidates));
+            const position = createFolderPositionField(layout, labelMapFromCandidates(candidates), positionFieldPrefs('regex'));
             positionSelect = position?.select ?? null;
             if (position) positionContainer.append(position.field);
 
@@ -280,7 +330,7 @@ export function createFolderDialogs({
         return { typeKey, name: nameInput.value.trim(), itemIds, afterKey: positionSelect?.value || '' };
     }
 
-    async function requestFolderSettings(layout, folder, candidates = []) {
+    async function requestFolderSettings(layout, folder, candidates = [], { kind = null } = {}) {
         const form = document.createElement('div');
         form.className = 'foldy-edit-form foldy-folder-settings-form';
 
@@ -304,6 +354,7 @@ export function createFolderDialogs({
             excludeKey: `folder:${folder.id}`,
             hintText: '(\uC120\uD0DD\uD55C \uD3F4\uB354\u00B7\uD56D\uBAA9 \uBC14\uB85C \uC544\uB798\uB85C \uC62E\uACA8\uC9D1\uB2C8\uB2E4)',
             selectedKey: currentAnchorKeyForFolder(layout, folder.id),
+            ...positionFieldPrefs(kind),
         });
 
         const backgroundColor = createColorSetting('\uBC30\uACBD\uC0C9', folder.color, themeColorHex('--SmartThemeBlurTintColor'));

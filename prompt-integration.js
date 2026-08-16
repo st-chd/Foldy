@@ -219,7 +219,7 @@ export function createPromptIntegration({
                 id: itemId,
                 label: element.querySelector('.completion_prompt_manager_prompt_name')?.textContent?.trim() || itemId,
             }));
-            const values = await requestFolderSettings(activeLayout, folder, candidates);
+            const values = await requestFolderSettings(activeLayout, folder, candidates, { kind: 'prompts' });
             if (!values) return;
             if (rerenderIfPromptContextChanged(activeLayout)) return;
             const { applyStyleToAll, afterKey, ...folderValues } = values;
@@ -324,7 +324,7 @@ export function createPromptIntegration({
                     id,
                     label: promptsById.get(id)?.name || id,
                 }));
-            const values = await requestNewFolder(activeLayout, candidates);
+            const values = await requestNewFolder(activeLayout, candidates, { kind: 'prompts' });
             if (!values) return;
             if (rerenderIfPromptContextChanged(activeLayout)) return;
             const result = layoutWithAddedFolder(activeLayout, values.name, values.itemIds, undefined, { afterKey: values.afterKey });

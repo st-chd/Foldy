@@ -531,6 +531,11 @@ const {
     withErrorToast,
     regexFolderTargets: REGEX_FOLDER_TARGETS,
     regexFolderCreateContext,
+    getPositionFilterPref: kind => settings().ui.positionFilter[kind] || 'folders',
+    setPositionFilterPref: (kind, value) => {
+        settings().ui.positionFilter[kind] = value;
+        saveSettingsDebounced();
+    },
 });
 
 const {
@@ -745,7 +750,7 @@ async function createLorebookFolder() {
         .map(id => entriesById.get(id))
         .filter(Boolean)
         .map(entry => ({ id: String(entry.uid), label: loreEntryLabel(entry) }));
-    const values = await requestNewFolder(layout, candidates);
+    const values = await requestNewFolder(layout, candidates, { kind: 'lorebooks' });
     if (!values) return;
 
     const result = layoutWithAddedFolder(layout, values.name, values.itemIds, undefined, { afterKey: values.afterKey });

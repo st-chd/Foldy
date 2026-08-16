@@ -269,7 +269,7 @@ export function createLorebookIntegration({
                 const folder = layout.folders.find(value => value.id === id);
                 if (!folder) return;
                 const candidates = [...entryMap.entries()].map(([entryId, entry]) => ({ id: entryId, label: loreEntryLabel(entry) }));
-                const values = await requestFolderSettings(layout, folder, candidates);
+                const values = await requestFolderSettings(layout, folder, candidates, { kind: 'lorebooks' });
                 if (!values) return;
                 if (rerenderIfLoreContextChanged()) return;
                 const { applyStyleToAll, afterKey, ...folderValues } = values;
