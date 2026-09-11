@@ -685,7 +685,8 @@ export function createConfirmDialogs({ Popup, POPUP_RESULT, POPUP_TYPE }) {
             choices.push(input);
         }
         const hint = document.createElement('p');
-        hint.textContent = `폴더만 삭제하면 ${itemLabel}은 최상위로 이동합니다. 내용까지 삭제하면 원본 항목도 삭제되며 되돌릴 수 없습니다.`;
+        hint.className = 'foldy-export-hint';
+        hint.textContent = `폴더만 삭제하면 폴더 안의 ${itemLabel} 모두 최상위로 이동합니다. 내용까지 삭제하면 원본 항목도 삭제되며 되돌릴 수 없습니다.`;
         if (protectedCount) hint.textContent += ` 삭제할 수 없는 기본 프롬프트 ${protectedCount}개는 최상위로 이동합니다.`;
         body.append(hint);
         const result = await new Popup(body, POPUP_TYPE.CONFIRM, '', {
