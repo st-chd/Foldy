@@ -6,8 +6,7 @@ import {
     rootNodeKey,
 } from './model.js';
 
-// 네이티브 select 펼침 목록의 너비는 CSS로 제어 불가하고 가장 긴 옵션을 따라가므로,
-// 표시용 글자 수를 잘라서 너비를 잡는다.
+// 네이티브 select 목록 폭이 길어지지 않도록 표시명을 자른다.
 const POSITION_OPTION_MAX_LENGTH = 30;
 
 function truncateOptionLabel(value) {
@@ -29,9 +28,7 @@ function anchorMatchesFilter(anchor, filter) {
     return true;
 }
 
-// 새/기존 폴더의 위치를 고르는 필드(기준 노드가 없으면 null). filterPref로 폴더만/
-// 폴더제외/모두보기 select를 같이 그린다. selectedKey가 지금 필터로는 안 보이는
-// 노드를 가리키면(예: 현재 위치가 항목) 선택이 사라지지 않도록 처음엔 "모두보기"로 연다.
+// 현재 위치가 필터에 없으면 선택을 유지하려고 처음에는 전체를 표시한다.
 function createFolderPositionField(layout, labelById = new Map(), {
     excludeKey = '',
     hintText = '(선택한 폴더·항목 바로 아래에 새 폴더가 생성됩니다)',
@@ -48,7 +45,6 @@ function createFolderPositionField(layout, labelById = new Map(), {
             if (folder) anchors.push({ key, text: `[폴더] ${folder.name}`, isFolder: true });
             continue;
         }
-        // 라벨이 없는 항목은 화면에 보이지 않는 항목이므로 기준으로 제시하지 않는다.
         const label = labelById.get(String(node.id));
         if (label) anchors.push({ key, text: label, isFolder: false });
     }
@@ -114,8 +110,7 @@ function createFolderPositionField(layout, labelById = new Map(), {
     return { field, select };
 }
 
-// folder(root 안의 폴더 노드) 바로 앞에 있는 root 노드의 key. 그게 이 폴더의
-// "현재 위치"에 해당하는 위치 select 값이다(맨 앞이면 빈 문자열 = 맨 위).
+// 폴더 직전 루트 노드의 키를 현재 위치로 쓴다.
 function currentAnchorKeyForFolder(layout, folderId) {
     const index = layout.root.findIndex(node => node.type === 'folder' && node.id === folderId);
     if (index <= 0) return '';
@@ -603,8 +598,7 @@ export function createFolderDialogs({
         if (kind === 'lore') {
             const host = element.querySelector('.inline-drawer-header');
             if (!host) return;
-            // 모바일 grid 레이아웃에서 셀 미지정 버튼이 좁은 컬럼에 몰리지 않도록
-            // 기본 버튼들을 항상 이 래퍼로 묶는다(폴더가 없어도).
+            // 모바일 grid에서 기본 버튼이 좁은 열에 몰리지 않도록 묶는다.
             let actions = host.querySelector(':scope > .foldy-lore-entry-actions');
             if (!actions) {
                 actions = document.createElement('div');
@@ -663,12 +657,36 @@ export function createConfirmDialogs({ Popup, POPUP_RESULT, POPUP_TYPE }) {
         return result === POPUP_RESULT.AFFIRMATIVE;
     }
 
-    async function confirmFolderDelete(folderName, itemLabel) {
-        return confirmText(
-            '\uD3F4\uB354 \uC0AD\uC81C',
-            `"${folderName}" \uD3F4\uB354\uB97C \uC0AD\uC81C\uD558\uACE0 \uC548\uC758 ${itemLabel} \uCD5C\uC0C1\uC704\uB85C \uC62E\uAE38\uAE4C\uC694?`,
-            { okButton: '\uC0AD\uC81C' },
-        );
+    async function confirmFolderDelete(folderName, itemLabel, { protectedCount = 0 } = {}) {
+        const body = document.createElement('div');
+        body.className = 'foldy-confirm-body';
+        const title = document.createElement('h3');
+        title.textContent = `"${folderName}" 폴더 삭제`;
+        body.append(title);
+        const choices = [];
+        for (const [value, text] of [['folder', '폴더만 삭제'], ['contents', '폴더와 내용까지 모두 삭제']]) {
+            const label = document.createElement('label');
+            label.className = 'checkbox flex-container';
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'foldy-delete-mode';
+            input.value = value;
+            input.checked = value === 'folder';
+            const span = document.createElement('span');
+            span.textContent = text;
+            label.append(input, span);
+            body.append(label);
+            choices.push(input);
+        }
+        const hint = document.createElement('p');
+        hint.className = 'foldy-export-hint';
+        hint.textContent = `폴더만 삭제하면 폴더 안의 ${itemLabel} 모두 최상위로 이동합니다. 내용까지 삭제하면 원본 항목도 삭제되며 되돌릴 수 없습니다.`;
+        if (protectedCount) hint.textContent += ` 삭제할 수 없는 기본 프롬프트 ${protectedCount}개는 최상위로 이동합니다.`;
+        body.append(hint);
+        const result = await new Popup(body, POPUP_TYPE.CONFIRM, '', {
+            okButton: '삭제', cancelButton: '취소',
+        }).show();
+        return result === POPUP_RESULT.AFFIRMATIVE ? choices.find(input => input.checked).value : null;
     }
 
     return {

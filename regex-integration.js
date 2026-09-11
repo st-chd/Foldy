@@ -69,8 +69,7 @@ export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
     return layoutFromTree(nodes, sourceLayout, allIds, options);
 }
 
-// 모바일 폴더 메뉴가 document.body로 옮겨졌다 돌아오는 mutation(openFoldyFolderMenu)은
-// 실제 콘텐츠 변경이 아니므로 regexObserver가 반응할 이유가 아니다.
+// 모바일 메뉴 포털 이동은 콘텐츠 변경으로 처리하지 않는다.
 export function isFoldyFolderActionsMutation(mutation) {
     if (mutation.type !== 'childList') return false;
     const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
@@ -319,10 +318,19 @@ export function createRegexIntegration({
         };
         const onDelete = async id => {
             const folder = layout.folders.find(value => value.id === id);
-            if (!folder || !await confirmFolderDelete(folder.name, '정규식 스크립트')) return;
+            if (!folder) return;
+            const mode = await confirmFolderDelete(folder.name, '정규식 스크립트');
+            if (!mode) return;
             if (rerenderIfRegexContextChanged()) return;
-            const nextLayout = removeFolder(layout, id);
+            if (mode === 'contents') {
+                const type = regexTypes[typeKey].scriptType;
+                const ids = new Set(folder.items.map(String));
+                await saveScriptsByType(getScriptsByType(type).filter(script => !ids.has(String(script.id))), type);
+                saveSettingsDebounced();
+            }
+            const nextLayout = removeFolder(layout, id, { deleteContents: mode === 'contents' });
             await persistRegexLayout(typeKey, owner, nextLayout);
+            if (mode === 'contents' && getCurrentChatId()) await reloadCurrentChat();
             rerender();
         };
 
@@ -407,7 +415,7 @@ export function createRegexIntegration({
             rerender();
         };
         const createHostTypeKey = Object.keys(regexTypes).find(key => document.querySelector(regexTypes[key].selector));
-        ensureToolbar(list.parentElement, `regex-${typeKey}`, typeKey === createHostTypeKey ? onCreate : null, [
+        const toolbar = ensureToolbar(list.parentElement, `regex-${typeKey}`, typeKey === createHostTypeKey ? onCreate : null, [
             createRootBulkMoveButton(async () => {
                 const labels = new Map([...scriptsById.entries()].map(([scriptId, script]) => [
                     String(scriptId),
@@ -424,6 +432,7 @@ export function createRegexIntegration({
             ...createCollapseButtons('regex', `${typeKey}:${owner}`, () => layout, async () => rerender()),
             ...createBundleButtons(() => exportRegexBundle(typeKey), () => importRegexBundle(typeKey)),
         ]);
+        if (toolbar) list.before(toolbar);
         setupRegexSortable(typeKey, owner, layout);
     }
 
@@ -462,7 +471,7 @@ export function createRegexIntegration({
             return;
         }
         regexObserver = new MutationObserver(mutations => {
-            // 이 mutation까지 재렌더링하면 방금 연 모바일 폴더 메뉴가 바로 닫혀버린다.
+            // 모바일 메뉴 이동으로 재렌더링하면 메뉴가 바로 닫힌다.
             if (mutations.length && mutations.every(isFoldyFolderActionsMutation)) return;
             if (regexRenderGate.isRunning() || sortingRegex || regexRenderGate.isQueued()) return;
             regexRenderGate.queue(() => {
@@ -521,7 +530,7 @@ export function createRegexBundleActions({
     assertRegexBundleShape,
     confirmText,
 }) {
-    async function requestRegexExportMode(typeKey) {
+    async function requestRegexExportMode(typeKey, folders) {
         const label = regexTypes[typeKey]?.label || typeKey;
         return requestBundleExportMode(
             `${label} 정규식 내보내기`,
@@ -529,6 +538,7 @@ export function createRegexBundleActions({
             '폴더 구조만',
             '폴더 구조만 내보내면 불러올 때 현재 정규식 스크립트는 유지하고 폴더 배치만 적용합니다.',
             `foldy_regex_${typeKey}_export_mode`,
+            folders,
         );
     }
 
@@ -592,12 +602,25 @@ export function createRegexBundleActions({
     }
 
     async function exportRegexBundle(typeKey) {
-        const { owner, layout } = readRegexLayout(typeKey);
+        const snapshot = readRegexLayout(typeKey);
+        const owner = snapshot.owner;
+        let layout = cloneJson(snapshot.layout);
         const type = regexTypes[typeKey].scriptType;
-        const scripts = getScriptsByType(type).map(cloneJson);
+        let scripts = getScriptsByType(type).map(cloneJson);
+        const selection = await requestRegexExportMode(typeKey, layout.folders);
+        if (!selection) return;
+        const { mode, folderIds } = selection;
+        if (folderIds) {
+            const selected = new Set(folderIds);
+            layout = {
+                ...layout,
+                root: layout.root.filter(node => node.type === 'folder' && selected.has(node.id)),
+                folders: layout.folders.filter(folder => selected.has(folder.id)),
+            };
+            const selectedIds = new Set(flattenLayout(layout));
+            scripts = scripts.filter(script => selectedIds.has(String(script.id)));
+        }
         const ids = new Set(flattenLayout(layout));
-        const mode = await requestRegexExportMode(typeKey);
-        if (!mode) return;
 
         if (mode === 'layout') {
             if (!await downloadJson({

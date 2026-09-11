@@ -2,7 +2,7 @@
 
 import { removeFolder } from './model.js';
 
-function createUnusedDataPreview(items) {
+function createUnusedDataPreview(items, { showCategoryPrefix = false } = {}) {
     const preview = document.createElement('div');
     preview.className = 'foldy-clear-unused-preview';
     const title = document.createElement('div');
@@ -21,7 +21,8 @@ function createUnusedDataPreview(items) {
     const list = document.createElement('ul');
     items.slice(0, 30).forEach(item => {
         const row = document.createElement('li');
-        row.textContent = `${item.title}: ${item.value}`;
+        const itemLabel = item.label ?? item.value;
+        row.textContent = showCategoryPrefix && item.title ? `${item.title}: ${itemLabel}` : itemLabel;
         list.append(row);
     });
     if (items.length > 30) {
@@ -87,9 +88,12 @@ export function createClearDataDialog({
 
         const form = document.createElement('div');
         form.className = 'foldy-clear-form';
+        const title = document.createElement('div');
+        title.className = 'foldy-edit-title';
+        title.textContent = scope === 'all' ? '모든 폴더 데이터 삭제' : `[${label}] 데이터 삭제`;
         const hint = document.createElement('div');
         hint.className = 'foldy-export-hint';
-        hint.textContent = `${label} 폴더 데이터만 삭제합니다. 원본 프롬프트, 로어북, 정규식 내용은 유지됩니다.`;
+        hint.textContent = '폴더 데이터만 삭제하고 내용은 유지합니다.';
 
         const options = document.createElement('div');
         options.className = 'foldy-clear-options';
@@ -135,7 +139,7 @@ export function createClearDataDialog({
             if (activeRadio.checked) {
                 details.append(createActiveFolderSelection(activeItems, { showCategoryPrefix: scope === 'all' }));
             } else if (unusedRadio.checked) {
-                details.append(createUnusedDataPreview(unusedItems));
+                details.append(createUnusedDataPreview(unusedItems, { showCategoryPrefix: scope === 'all' }));
             } else if (allRadio.checked) {
                 const message = document.createElement('div');
                 message.className = 'foldy-clear-unused-preview';
@@ -151,7 +155,7 @@ export function createClearDataDialog({
         options.addEventListener('input', renderDetails);
         renderDetails();
 
-        form.append(hint, options, details);
+        form.append(title, hint, options, details);
         const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
             okButton: '삭제',
             cancelButton: '취소',
@@ -274,7 +278,7 @@ export function createFoldyDataCleanup({
 
     function isPlaceholderLoreOwner(owner) {
         const value = String(owner || '').trim();
-        // World Info 플레이스홀더 라벨과 매칭(ST가 문구를 바꾸면 오탐 가능).
+        // World Info의 기본 플레이스홀더와 비교한다.
         return /^name:\s*-+\s*.*\uC120\uD0DD.*-+\s*$/.test(value)
             || /^name:\s*-+\s*.*select.*-+\s*$/i.test(value);
     }
@@ -330,7 +334,7 @@ export function createFoldyDataCleanup({
                 return parts.at(-1) || value;
             }
         } catch {
-            // 예전에 저장된 owner는 아래처럼 콜론으로 구분된 키를 사용한다.
+            // 이전 저장 형식은 콜론으로 키를 구분한다.
         }
         if (value.startsWith('name:')) return value.slice(5);
         if (/^index:\d+$/.test(value)) return getWorldNames()?.[Number(value.slice(6))] || value;
@@ -349,7 +353,7 @@ export function createFoldyDataCleanup({
             const parts = JSON.parse(value);
             if (Array.isArray(parts)) return parts[0] === typeKey;
         } catch {
-            // 예전에 저장된 owner는 아래처럼 콜론으로 구분된 키를 사용한다.
+            // 이전 저장 형식은 콜론으로 키를 구분한다.
         }
         if (typeKey === 'global') return value === 'global';
         if (typeKey === 'scoped') return value.startsWith('scoped:');
@@ -454,10 +458,10 @@ export function createFoldyDataCleanup({
 
     function unusedFoldyDataItems(report, scope = 'all') {
         const items = [];
-        const addOwners = (title, values) => values.forEach(value => items.push({ title, value }));
+        const addOwners = (title, values) => values.forEach(value => items.push({ title, value, label: ownerDisplayName(value) }));
         const mergeOwners = (title, ...groups) => {
             const owners = [...new Set(groups.flat().map(value => String(value)).filter(Boolean))];
-            owners.forEach(value => items.push({ title, value }));
+            addOwners(title, owners);
         };
         if (scope === 'all' || scope === 'prompts') {
             mergeOwners('프롬프트', report.layouts.prompts, report.collapsed.prompt);
@@ -489,7 +493,7 @@ export function createFoldyDataCleanup({
         if (scope === 'all' || scope === 'lorebooks') {
             state.layouts.lorebooks = {};
             state.collapsed.lore = {};
-            // sortOrder/페이지 크기는 accountStorage(자체 네임스페이스 밖)에도 남으므로 같이 지운다.
+            // 정렬과 페이지 크기도 별도 저장소에서 지운다.
             if (accountStorage && sortOrderKey && accountStorage.getItem(sortOrderKey) === loreSortValue) {
                 accountStorage.removeItem(sortOrderKey);
             }

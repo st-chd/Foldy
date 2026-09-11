@@ -83,12 +83,12 @@ const REGEX_TYPES = {
     global: {
         scriptType: SCRIPT_TYPES.GLOBAL,
         selector: '#saved_regex_scripts',
-        label: 'Global',
+        label: '글로벌',
     },
     scoped: {
         scriptType: SCRIPT_TYPES.SCOPED,
         selector: '#saved_scoped_scripts',
-        label: 'Scoped',
+        label: '범위 지정',
     },
     preset: {
         scriptType: SCRIPT_TYPES.PRESET,
@@ -97,8 +97,8 @@ const REGEX_TYPES = {
     },
 };
 const REGEX_FOLDER_TARGETS = [
-    { key: 'global', label: '전역' },
-    { key: 'preset', label: '프리셋' },
+    { key: 'global', label: '글로벌' },
+    { key: 'preset', label: 'Preset' },
     { key: 'scoped', label: '범위 지정' },
 ];
 
@@ -262,7 +262,7 @@ function createSettingsRenderer({
             rerender();
         }));
         $('#foldy_clear_regex').on('click', () => withErrorToast('Clear regex folder data', async () => {
-            await requestClearFoldyData('regex', 'Regex');
+            await requestClearFoldyData('regex', '정규식');
             rerender();
         }));
         $('#foldy_clear_all').on('click', () => withErrorToast('Clear all folder data', async () => {
@@ -828,6 +828,32 @@ async function createLorebookEntryInFolderOrder() {
     });
 }
 
+async function deleteLorebookFolderContents(expectedOwner, folderId) {
+    const { name, owner } = currentLorebookOwner();
+    if (!name || owner !== expectedOwner) return;
+    await enqueueLorebookWrite(name, async () => {
+        const data = await loadWorldInfo(name);
+        if (!data?.entries || !isLoreOriginalDataCompatible(data)) return;
+        const layout = settings().layouts.lorebooks[owner];
+        const folder = layout?.folders.find(value => value.id === folderId);
+        if (!folder) return;
+        for (const uid of folder.items) {
+            if (await deleteWorldInfoEntry(data, String(uid), { silent: true })) {
+                deleteWIOriginalDataValue(data, String(uid));
+            }
+        }
+        await saveWorldInfo(name, data, true);
+        const allIds = Object.values(data.entries).filter(Boolean).map(entry => String(entry.uid));
+        const nextLayout = normalizeLayout({
+            ...layout,
+            root: layout.root.filter(node => node.type !== 'folder' || node.id !== folderId),
+            folders: layout.folders.filter(value => value.id !== folderId),
+        }, allIds);
+        await persistLoreLayout(owner, nextLayout);
+        queueLoreRender();
+    });
+}
+
 async function deleteLorebookEntryInFolderOrder(uid) {
     if (!featureEnabled('lorebooks')) return;
     const { name, owner } = currentLorebookOwner();
@@ -1019,6 +1045,7 @@ function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = 
     createLorebookFolder,
     createLorebookEntryInFolderOrder,
     deleteLorebookEntryInFolderOrder,
+    deleteLorebookFolderContents,
     setLoreFolderEnabled,
     createLoreBulkSettingButtons,
     requestFolderSettings,
