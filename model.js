@@ -478,14 +478,14 @@ export function mergeImportedLayout(currentLayout, importedLayout, allIds, optio
     }, allIds, options);
 }
 
-export function removeFolder(layout, folderId) {
+export function removeFolder(layout, folderId, { deleteContents = false } = {}) {
     const root = [...(layout.root || [])];
     const folders = [...(layout.folders || [])];
     const folder = folders.find(value => value.id === folderId);
     const rootIndex = root.findIndex(node => node.type === 'folder' && node.id === folderId);
     if (!folder || rootIndex === -1) return layout;
 
-    root.splice(rootIndex, 1, ...(folder.items || []).map(id => ({ type: 'item', id })));
+    root.splice(rootIndex, 1, ...(deleteContents ? [] : (folder.items || []).map(id => ({ type: 'item', id }))));
     return {
         version: FOLDY_VERSION,
         root,

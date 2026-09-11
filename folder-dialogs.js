@@ -663,12 +663,35 @@ export function createConfirmDialogs({ Popup, POPUP_RESULT, POPUP_TYPE }) {
         return result === POPUP_RESULT.AFFIRMATIVE;
     }
 
-    async function confirmFolderDelete(folderName, itemLabel) {
-        return confirmText(
-            '\uD3F4\uB354 \uC0AD\uC81C',
-            `"${folderName}" \uD3F4\uB354\uB97C \uC0AD\uC81C\uD558\uACE0 \uC548\uC758 ${itemLabel} \uCD5C\uC0C1\uC704\uB85C \uC62E\uAE38\uAE4C\uC694?`,
-            { okButton: '\uC0AD\uC81C' },
-        );
+    async function confirmFolderDelete(folderName, itemLabel, { protectedCount = 0 } = {}) {
+        const body = document.createElement('div');
+        body.className = 'foldy-confirm-body';
+        const title = document.createElement('h3');
+        title.textContent = `"${folderName}" 폴더 삭제`;
+        body.append(title);
+        const choices = [];
+        for (const [value, text] of [['folder', '폴더만 삭제'], ['contents', '폴더와 내용까지 모두 삭제']]) {
+            const label = document.createElement('label');
+            label.className = 'checkbox flex-container';
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'foldy-delete-mode';
+            input.value = value;
+            input.checked = value === 'folder';
+            const span = document.createElement('span');
+            span.textContent = text;
+            label.append(input, span);
+            body.append(label);
+            choices.push(input);
+        }
+        const hint = document.createElement('p');
+        hint.textContent = `폴더만 삭제하면 ${itemLabel}은 최상위로 이동합니다. 내용까지 삭제하면 원본 항목도 삭제되며 되돌릴 수 없습니다.`;
+        if (protectedCount) hint.textContent += ` 삭제할 수 없는 기본 프롬프트 ${protectedCount}개는 최상위로 이동합니다.`;
+        body.append(hint);
+        const result = await new Popup(body, POPUP_TYPE.CONFIRM, '', {
+            okButton: '삭제', cancelButton: '취소',
+        }).show();
+        return result === POPUP_RESULT.AFFIRMATIVE ? choices.find(input => input.checked).value : null;
     }
 
     return {

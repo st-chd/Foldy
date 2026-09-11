@@ -231,8 +231,22 @@ export function createPromptIntegration({
         const onDelete = async id => {
             const activeLayout = currentPromptLayout;
             const folder = activeLayout.folders.find(value => value.id === id);
-            if (!folder || !await confirmFolderDelete(folder.name, '프롬프트 항목을')) return;
+            if (!folder) return;
+            const deletableIds = new Set(folder.items.filter(itemId => {
+                const prompt = manager.getPromptById(itemId);
+                return prompt && manager.isPromptDeletionAllowed(prompt);
+            }));
+            const mode = await confirmFolderDelete(folder.name, '프롬프트 항목', {
+                protectedCount: folder.items.length - deletableIds.size,
+            });
+            if (!mode) return;
             if (rerenderIfPromptContextChanged(activeLayout)) return;
+            if (mode === 'contents') {
+                manager.serviceSettings.prompts = manager.serviceSettings.prompts.filter(prompt => !deletableIds.has(prompt.identifier));
+                for (const entry of manager.serviceSettings.prompt_order) {
+                    entry.order = entry.order.filter(prompt => !deletableIds.has(prompt.identifier));
+                }
+            }
             const removedLayout = removeFolder(activeLayout, id);
             const nextLayout = normalizeLayout(removedLayout, promptOrderIds(manager), { preserveUnrootedFolders: false });
             await persistPromptLayout(owner, nextLayout, manager);

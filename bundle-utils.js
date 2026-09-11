@@ -358,7 +358,7 @@ export function createBundleActions({
         }, { withErrorToast });
         return [expandAll, collapseAll];
     }
-    async function requestBundleExportMode(titleText, fullLabel, layoutLabel, hintText, inputName = 'foldy_export_mode') {
+    async function requestBundleExportMode(titleText, fullLabel, layoutLabel, hintText, inputName = 'foldy_export_mode', folders = null) {
         const form = document.createElement('div');
         form.className = 'foldy-export-form';
 
@@ -392,12 +392,54 @@ export function createBundleActions({
         hint.textContent = hintText;
 
         form.append(title, full, layoutOnly, hint);
+        const folderInputs = [];
+        let byFolderInput = null;
+        if (folders) {
+            const option = document.createElement('label');
+            option.className = 'checkbox flex-container';
+            byFolderInput = document.createElement('input');
+            byFolderInput.type = 'checkbox';
+            const text = document.createElement('span');
+            text.textContent = '폴더별 내보내기';
+            option.append(byFolderInput, text);
+            const list = document.createElement('div');
+            list.className = 'foldy-selection-list';
+            list.hidden = true;
+            list.style.display = 'none';
+            for (const folder of folders) {
+                const row = document.createElement('label');
+                row.className = 'checkbox flex-container';
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.value = folder.id;
+                const name = document.createElement('span');
+                name.textContent = `${folder.name} (${folder.items.length}개)`;
+                row.append(input, name);
+                list.append(row);
+                folderInputs.push(input);
+            }
+            if (!folders.length) list.textContent = '내보낼 폴더가 없습니다.';
+            byFolderInput.addEventListener('change', () => {
+                list.hidden = !byFolderInput.checked;
+                list.style.display = byFolderInput.checked ? '' : 'none';
+            });
+            form.append(option, list);
+        }
         const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
+            onClosing: popup => {
+                if (popup.result === POPUP_RESULT.AFFIRMATIVE && byFolderInput?.checked && !folderInputs.some(input => input.checked)) {
+                    toastr.warning('내보낼 폴더를 하나 이상 선택해 주세요.');
+                    return false;
+                }
+                return true;
+            },
             okButton: '내보내기',
             cancelButton: '취소',
         }).show();
         if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
-        return form.querySelector(`input[name="${inputName}"]:checked`)?.value || 'full';
+        const mode = fullInput.checked ? 'full' : 'layout';
+        if (!folders) return mode;
+        return { mode, folderIds: byFolderInput.checked ? folderInputs.filter(input => input.checked).map(input => input.value) : null };
     }
 
     return {

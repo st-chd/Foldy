@@ -69,6 +69,7 @@ export function createLorebookIntegration({
     createLorebookFolder,
     createLorebookEntryInFolderOrder,
     deleteLorebookEntryInFolderOrder,
+    deleteLorebookFolderContents,
     setLoreFolderEnabled,
     createLoreBulkSettingButtons,
     requestFolderSettings,
@@ -281,8 +282,15 @@ export function createLorebookIntegration({
             };
             const onDelete = async id => {
                 const folder = layout.folders.find(value => value.id === id);
-                if (!folder || !await confirmFolderDelete(folder.name, '항목')) return;
+                if (!folder) return;
+                const mode = await confirmFolderDelete(folder.name, '항목');
+                if (!mode) return;
                 if (rerenderIfLoreContextChanged()) return;
+                if (mode === 'contents') {
+                    await deleteLorebookFolderContents(owner, id);
+                    rerender();
+                    return;
+                }
                 const nextLayout = removeFolder(layout, id);
                 await persistLoreLayout(owner, nextLayout);
                 rerender();

@@ -21,7 +21,7 @@ function createUnusedDataPreview(items) {
     const list = document.createElement('ul');
     items.slice(0, 30).forEach(item => {
         const row = document.createElement('li');
-        row.textContent = `${item.title}: ${item.value}`;
+        row.textContent = `${item.title}: ${item.label ?? item.value}`;
         list.append(row);
     });
     if (items.length > 30) {
@@ -454,10 +454,10 @@ export function createFoldyDataCleanup({
 
     function unusedFoldyDataItems(report, scope = 'all') {
         const items = [];
-        const addOwners = (title, values) => values.forEach(value => items.push({ title, value }));
+        const addOwners = (title, values) => values.forEach(value => items.push({ title, value, label: ownerDisplayName(value) }));
         const mergeOwners = (title, ...groups) => {
             const owners = [...new Set(groups.flat().map(value => String(value)).filter(Boolean))];
-            owners.forEach(value => items.push({ title, value }));
+            addOwners(title, owners);
         };
         if (scope === 'all' || scope === 'prompts') {
             mergeOwners('프롬프트', report.layouts.prompts, report.collapsed.prompt);
