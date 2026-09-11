@@ -396,7 +396,7 @@ export function createBundleActions({
         let byFolderInput = null;
         if (folders) {
             const option = document.createElement('label');
-            option.className = 'checkbox flex-container';
+            option.className = 'checkbox flex-container foldy-export-folder-option';
             byFolderInput = document.createElement('input');
             byFolderInput.type = 'checkbox';
             const text = document.createElement('span');

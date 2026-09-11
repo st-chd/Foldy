@@ -292,6 +292,30 @@
     line-height: 1.35;
 }
 
+.foldy-export-folder-option {
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+    padding-top: 0.75em;
+}
+
+.foldy-export-form .foldy-selection-list {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 78%, transparent);
+    max-height: min(14em, 36vh);
+    overflow: auto;
+    padding: 0.45em;
+}
+
+.foldy-export-form .foldy-selection-list > label {
+    margin: 0;
+    padding: 0.45em;
+    overflow-wrap: anywhere;
+}
+
+.foldy-export-form .foldy-selection-list > label + label {
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 12%, transparent);
+}
+
 .foldy-edit-title {
     font-weight: 700;
     color: var(--SmartThemeBodyColor);
