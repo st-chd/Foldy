@@ -10,7 +10,7 @@ export function cloneJson(value) {
         try {
             return structuredClone(value);
         } catch {
-            // structuredClone이 복제할 수 없는 호스트 객체를 위해 기존 JSON 복제 방식으로 대체한다.
+            // 복제할 수 없는 값은 JSON 복제로 대체한다.
         }
     }
     return JSON.parse(JSON.stringify(value));
@@ -22,8 +22,7 @@ export function safeFilePart(value) {
         .replace(/[<>:"/\\|?*\x00-\x1F\x7F]+/g, '_')
         .replace(/^_+|_+$/g, '')
         .slice(0, 80) || 'current';
-    // Windows는 확장자가 붙어도 이 이름들을 예약어로 취급한다.
-    // 접두사를 붙이면 안전하면서도 사용자가 입력한 이름을 알아볼 수 있게 유지된다.
+    // Windows 예약 파일명은 접두사로 피한다.
     return /^(?:CON|PRN|AUX|NUL|CLOCK\$|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(part)
         ? `_${part}`
         : part;
@@ -55,7 +54,7 @@ export function isObjectRecord(value) {
 }
 
 export function hasValue(value) {
-    // 0이나 false 같은 falsy 값도 유효한 불러오기 식별자일 수 있다.
+    // 0과 false도 유효한 식별자일 수 있다.
     return value !== undefined && value !== null && String(value) !== '';
 }
 
@@ -91,8 +90,7 @@ export function migrateBundle(bundle, { currentVersion = BUNDLE_VERSION } = {}) 
         migrated.version = currentVersion;
         return migrated;
     }
-    // 아직 과거 버전 마이그레이션이 필요하지 않다. 이 분기를 명시적으로 남겨 두어
-    // 번들 버전이 처음 올라갈 때 확장하고 테스트할 실제 함수가 있도록 한다.
+    // 번들 버전이 오르면 이 분기에 마이그레이션을 추가한다.
     migrated.version = currentVersion;
     return migrated;
 }

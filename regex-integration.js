@@ -69,8 +69,7 @@ export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
     return layoutFromTree(nodes, sourceLayout, allIds, options);
 }
 
-// 모바일 폴더 메뉴가 document.body로 옮겨졌다 돌아오는 mutation(openFoldyFolderMenu)은
-// 실제 콘텐츠 변경이 아니므로 regexObserver가 반응할 이유가 아니다.
+// 모바일 메뉴 포털 이동은 콘텐츠 변경으로 처리하지 않는다.
 export function isFoldyFolderActionsMutation(mutation) {
     if (mutation.type !== 'childList') return false;
     const nodes = [...mutation.addedNodes, ...mutation.removedNodes];
@@ -472,7 +471,7 @@ export function createRegexIntegration({
             return;
         }
         regexObserver = new MutationObserver(mutations => {
-            // 이 mutation까지 재렌더링하면 방금 연 모바일 폴더 메뉴가 바로 닫혀버린다.
+            // 모바일 메뉴 이동으로 재렌더링하면 메뉴가 바로 닫힌다.
             if (mutations.length && mutations.every(isFoldyFolderActionsMutation)) return;
             if (regexRenderGate.isRunning() || sortingRegex || regexRenderGate.isQueued()) return;
             regexRenderGate.queue(() => {

@@ -96,9 +96,7 @@ function isFoldyMobileMenuActive() {
     return typeof window.matchMedia === 'function' && window.matchMedia(FOLDY_MOBILE_MENU_QUERY).matches;
 }
 
-// 좁은 화면에서는 메뉴를 <body>로 옮겨 JS로 위치를 계산한다. 일부 ST 드로어는
-// backdrop-filter 때문에 자신이 fixed 자식의 containing block이 되어버려서,
-// 메뉴가 뷰포트가 아니라 드로어 기준으로 앉아 화면 밖으로 잘리거나 클릭이 안 된다.
+// 모바일 드로어의 backdrop-filter가 fixed 메뉴를 가리지 않도록 body로 옮긴다.
 function openFoldyFolderMenu(anchor, actions) {
     if (!isFoldyMobileMenuActive()) return;
     const header = actions.parentElement;
@@ -394,9 +392,7 @@ export function createFolderElement(folder, {
         document.addEventListener('click', event => {
             if (!element.contains(event.target) && !actions.contains(event.target)) closeActions();
         }, { signal });
-        // fixed 위치인 메뉴는 드로어/목록이 스크롤될 때 앵커를 따라갈 수 없으니
-        // 위치가 어긋나게 두는 대신 닫아버린다. "scroll" 이벤트는 버블링되지
-        // 않으므로 캡처 단계로 등록해야 내부 스크롤 컨테이너의 스크롤도 잡힌다.
+        // fixed 메뉴가 스크롤로 앵커와 어긋나면 닫는다.
         document.addEventListener('scroll', closeActions, { signal, capture: true, passive: true });
         window.addEventListener('resize', closeActions, { signal });
     };

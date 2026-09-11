@@ -83,9 +83,7 @@ export function setupFolderSortables({
         list.querySelectorAll('.foldy-drop-placeholder').forEach(element => element.remove());
     };
 
-    // jQuery UI가 매 이동마다 동기적으로 placeholder를 형제 위치로 재배치하므로,
-    // 우리 판정도 여기서 동기적으로 해야 항상 마지막에 이겨서 폴더 안에 들어간다.
-    // (requestAnimationFrame으로 미루면 jQuery와 매 프레임 줄다리기가 벌어진다.)
+    // jQuery UI의 placeholder 재배치보다 늦지 않게 동기적으로 판정한다.
     const rememberPointer = (event, ui) => {
         if (!draggingItemIntoFolder) {
             lastFolderElement = null;
@@ -219,8 +217,7 @@ export function setupFolderSortables({
             receive: (_, ui) => {
                 if (ui.item.hasClass('foldy-folder')) {
                     $(ui.sender).sortable('cancel');
-                    // 취소된 sender가 지원 대상 jQuery UI/브라우저 조합 전체에서
-                    // 항상 stop 이벤트를 발생시킨다는 보장이 없다.
+                    // 취소된 sender는 항상 stop 이벤트를 발생시키지 않는다.
                     setSorting(false);
                     clearDropState();
                 }

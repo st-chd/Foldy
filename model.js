@@ -7,7 +7,7 @@ export function generateUUID() {
         return globalThis.crypto.randomUUID();
     }
 
-    // crypto.randomUUID가 없는 구형 환경용 대체 구현. 암호학적으로 안전하지 않음.
+    // randomUUID를 지원하지 않는 환경의 대체값이다.
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, value => {
         const random = Math.floor(Math.random() * 16);
         return (value === 'x' ? random : (random & 0x3) | 0x8).toString(16);
@@ -67,7 +67,7 @@ function uniqueFolderName(name, usedNames) {
     return candidate;
 }
 
-// 저장된 레이아웃을 현재 항목 순서에 맞춰 조정한다. 빠진 항목은 가장 가까운 이웃 옆에 끼워 넣는다.
+// 저장된 레이아웃에 새 항목을 가까운 이웃 옆으로 보완한다.
 export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolders = true, onFolderRenamed = null } = {}) {
     const validIds = itemIds.map(String);
     const validSet = new Set(validIds);
@@ -129,7 +129,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         folders = folders.filter(folder => placedFolders.has(folder.id));
     }
 
-    // 실제 남은 항목만 배치됨으로 표시(주인 없는 폴더를 버릴 때 내부 항목을 루트로 풀어주기 위함).
+    // 남은 항목만 배치됨으로 다시 표시한다.
     placedItems.clear();
     for (const folder of folders) {
         for (const itemId of folder.items) placedItems.add(itemId);
@@ -151,7 +151,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         }
     });
 
-    // 새 항목은 현재 순서상 가장 가까운 이웃 옆에 붙여 폴더 묶음이 흐트러지지 않게 한다.
+    // 새 항목은 가까운 이웃을 따라 배치한다.
     const previousOwners = [];
     const previousKnownIds = [];
     let previousOwner = -1;
@@ -186,7 +186,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         const itemId = validIds[index];
         if (placedItems.has(itemId)) continue;
 
-        // 앞뒤 이웃이 같은 폴더면 그 안에, 아니면 루트에 둔다(마지막 폴더로 빨려 들어가는 것 방지).
+        // 양쪽 이웃이 같은 폴더일 때만 그 폴더에 넣는다.
         const absorbingFolderId = absorbingFolder(previousKnownIds[index], nextKnownIds[index], folderByItemId);
         if (absorbingFolderId) {
             const folder = folderMap.get(absorbingFolderId);
@@ -223,7 +223,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
     return { version: FOLDY_VERSION, root, folders };
 }
 
-// 앞 이웃과 뒤 이웃이 같은 폴더에 있을 때만 그 폴더 id를 돌려준다.
+// 양쪽 이웃이 같은 폴더일 때만 그 ID를 반환한다.
 function absorbingFolder(previousId, nextId, folderByItemId) {
     if (!previousId || !nextId) return '';
     const folderId = folderByItemId.get(previousId);
@@ -231,7 +231,7 @@ function absorbingFolder(previousId, nextId, folderByItemId) {
     return folderId;
 }
 
-// 값이 커지는 가장 긴 부분 수열의 인덱스 목록. 순서가 바뀐 항목을 최소로 골라내는 데 쓴다.
+// 최소 이동 항목을 찾기 위한 최장 증가 부분 수열이다.
 function longestIncreasingSubsequenceIndices(values) {
     const tails = [];
     const parents = new Array(values.length).fill(-1);
@@ -261,8 +261,7 @@ function rootNodeIdentity(node) {
     return `${node.type}␟${node.id}`;
 }
 
-// 외부(다른 확장/ST)가 바꾼 항목 순서를 레이아웃에 반영한다. 폴더 소속은 유지한 채 움직인
-// 항목만 옮기며, 이동 개수가 maxMoves를 넘으면(프리셋 교체 등) 따라가지 않는다.
+// 외부 순서 변경은 소수의 이동만 폴더 소속을 유지해 반영한다.
 export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3, onSkip = null } = {}) {
     const current = flattenLayout(layout);
     const external = [];
@@ -274,7 +273,7 @@ export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3
         external.push(id);
     }
 
-    // 항목 구성 자체가 다르면 normalizeLayout이 처리할 일이므로 손대지 않는다.
+    // 항목 구성이 다르면 정규화 단계에서 처리한다.
     if (current.length !== external.length || !current.every(id => externalSet.has(id))) return layout;
     if (current.every((id, index) => id === external[index])) return layout;
 
@@ -298,7 +297,7 @@ export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3
         return layout;
     }
 
-    // 움직인 항목의 새 소속은 제자리에 남은 이웃을 기준으로 정한다.
+    // 이동 항목의 새 소속은 남은 이웃으로 정한다.
     const ownerForMoved = new Map();
     for (let index = 0; index < external.length; index++) {
         const id = external[index];
@@ -336,7 +335,7 @@ export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3
         folder.items.push(id);
     }
 
-    // 빈 폴더는 외부 순서에 나타나지 않으므로, 원래 루트에서의 앞 이웃 뒤에 되돌려 놓는다.
+    // 외부 순서에 없는 빈 폴더는 원래 위치 근처에 복원한다.
     let anchor = '';
     for (const node of layout.root || []) {
         const id = String(node.id);
@@ -351,7 +350,7 @@ export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3
     }
 
     const next = { version: FOLDY_VERSION, root, folders };
-    // 폴더가 쪼개지는 등 외부 순서를 그대로 재현하지 못했다면 건드리지 않는다.
+    // 외부 순서를 재현할 수 없으면 변경하지 않는다.
     const flattened = flattenLayout(next);
     if (flattened.length !== external.length || !flattened.every((id, index) => id === external[index])) {
         onSkip?.({ reason: 'order-mismatch', movedIds: [...movedIds] });
@@ -412,8 +411,7 @@ export function rootNodeKey(node) {
     return `${node?.type}:${node?.id}`;
 }
 
-// 한 페이지만 DOM에 있을 때, 그 페이지 노드를 전체 루트 순서에 다시 끼워 넣는다.
-// 페이지 밖 폴더는 "보존됨"으로 표시해 비었다고 오인하지 않게 한다.
+// 현재 페이지 노드만 전체 루트에 병합하고 다른 폴더 내용은 보존한다.
 export function mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) {
     const pageKeys = new Set(pageNodeKeys || []);
     if (!pageKeys.size) return domNodes;
@@ -436,7 +434,7 @@ export function mergePagedRootNodes(sourceLayout, domNodes, pageNodeKeys) {
 }
 
 export function remapImportedLayout(layout, itemIdMap, createFolderId = generateUUID) {
-    // 루트에서 연결된 폴더만 유지한다(고아 폴더는 버려짐).
+    // 루트에 연결된 폴더만 유지한다.
     const rootedFolderIds = new Set((layout?.root || [])
         .filter(node => node?.type === 'folder')
         .map(node => String(node.id)));
@@ -574,7 +572,7 @@ export function createRenderGate() {
     };
 }
 
-// 항상 새 레이아웃 객체를 반환한다. 호출부는 이 identity를 값싼 낡음(staleness) 검사로 쓴다.
+// 새 객체를 반환해 대기 중인 화면의 오래된 상태를 감지한다.
 export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
     const id = String(itemId);
     const currentRootIndex = layout.root.findIndex(node => node.type === 'item' && node.id === id);
@@ -642,8 +640,7 @@ export function layoutWithItemsMovedToFolder(layout, itemIds, folderId) {
     };
 }
 
-// afterKey 노드가 remainingRoot에서 이미 빠졌다면(옮겨진 항목이거나 자기 자신) 원래 그
-// 앞에 남아있던 가장 가까운 노드 뒤에 대신 꽂는다. 못 찾으면 맨 위(0).
+// 기준 노드가 빠졌으면 원래 앞쪽의 남은 노드 뒤에 넣는다.
 function insertionIndexAfter(originalRoot, remainingRoot, afterKey) {
     if (!afterKey) return 0;
     const originalIndex = originalRoot.findIndex(node => rootNodeKey(node) === afterKey);
@@ -673,8 +670,7 @@ export function layoutWithAddedFolder(layout, folderName, itemIds = [], createFo
     };
 }
 
-// 폴더를 root 안 다른 위치로 옮긴다. 내용물은 그대로 두고 노드 하나만 옮기므로
-// layoutWithAddedFolder보다 단순하다.
+// 폴더 내용은 유지한 채 루트 위치만 옮긴다.
 export function layoutWithMovedFolder(layout, folderId, afterKey = '') {
     const id = String(folderId ?? '');
     const folderKey = `folder:${id}`;
@@ -692,7 +688,7 @@ export function layoutWithMovedFolder(layout, folderId, afterKey = '') {
     return { changed: true, layout: { ...layout, root } };
 }
 
-// 항상 새 레이아웃 객체를 반환해, 대기 중인 다이얼로그가 낡음을 감지할 수 있게 한다.
+// 새 객체를 반환해 대기 중인 화면의 오래된 상태를 감지한다.
 export function layoutWithUpdatedFolder(layout, folderId, values = {}, { applyStyleToAll = false } = {}) {
     const id = String(folderId ?? '');
     const source = layout.folders.find(folder => folder.id === id);
