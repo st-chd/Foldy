@@ -2,7 +2,7 @@
 
 import { removeFolder } from './model.js';
 
-function createUnusedDataPreview(items) {
+function createUnusedDataPreview(items, { showCategoryPrefix = false } = {}) {
     const preview = document.createElement('div');
     preview.className = 'foldy-clear-unused-preview';
     const title = document.createElement('div');
@@ -21,7 +21,8 @@ function createUnusedDataPreview(items) {
     const list = document.createElement('ul');
     items.slice(0, 30).forEach(item => {
         const row = document.createElement('li');
-        row.textContent = `${item.title}: ${item.label ?? item.value}`;
+        const itemLabel = item.label ?? item.value;
+        row.textContent = showCategoryPrefix && item.title ? `${item.title}: ${itemLabel}` : itemLabel;
         list.append(row);
     });
     if (items.length > 30) {
@@ -87,9 +88,12 @@ export function createClearDataDialog({
 
         const form = document.createElement('div');
         form.className = 'foldy-clear-form';
+        const title = document.createElement('div');
+        title.className = 'foldy-edit-title';
+        title.textContent = scope === 'all' ? '모든 폴더 데이터 삭제' : `[${label}] 데이터 삭제`;
         const hint = document.createElement('div');
         hint.className = 'foldy-export-hint';
-        hint.textContent = `${label} 폴더 데이터만 삭제합니다. 원본 프롬프트, 로어북, 정규식 내용은 유지됩니다.`;
+        hint.textContent = '폴더 데이터만 삭제하고 내용은 유지합니다.';
 
         const options = document.createElement('div');
         options.className = 'foldy-clear-options';
@@ -135,7 +139,7 @@ export function createClearDataDialog({
             if (activeRadio.checked) {
                 details.append(createActiveFolderSelection(activeItems, { showCategoryPrefix: scope === 'all' }));
             } else if (unusedRadio.checked) {
-                details.append(createUnusedDataPreview(unusedItems));
+                details.append(createUnusedDataPreview(unusedItems, { showCategoryPrefix: scope === 'all' }));
             } else if (allRadio.checked) {
                 const message = document.createElement('div');
                 message.className = 'foldy-clear-unused-preview';
@@ -151,7 +155,7 @@ export function createClearDataDialog({
         options.addEventListener('input', renderDetails);
         renderDetails();
 
-        form.append(hint, options, details);
+        form.append(title, hint, options, details);
         const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
             okButton: '삭제',
             cancelButton: '취소',
