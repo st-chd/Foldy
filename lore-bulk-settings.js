@@ -48,6 +48,30 @@ export async function requestLoreFolderSettings(folder, { Popup, POPUP_TYPE, POP
         select.value = '';
         group.append(select);
         let input;
+        let positionInputs;
+        if (field.key === 'position') {
+            const depth = document.createElement('input');
+            depth.className = 'text_pole';
+            depth.type = 'number';
+            depth.min = '0';
+            depth.max = String(maxScanDepth);
+            depth.step = '1';
+            depth.placeholder = '깊이 (비워두면 기존 값 유지)';
+            depth.setAttribute('aria-label', '삽입 깊이');
+            const outlet = document.createElement('input');
+            outlet.className = 'text_pole';
+            outlet.type = 'text';
+            outlet.placeholder = 'outlet 이름 (비워두면 기존 값 유지)';
+            outlet.setAttribute('aria-label', 'outlet 이름');
+            const updatePositionInputs = () => {
+                depth.hidden = depth.disabled = !select.value.startsWith('4:');
+                outlet.hidden = outlet.disabled = select.value !== '7:';
+            };
+            select.addEventListener('change', updatePositionInputs);
+            updatePositionInputs();
+            group.append(depth, outlet);
+            positionInputs = { depth, outlet };
+        }
         if (field.min !== undefined) {
             input = document.createElement('input');
             input.className = 'text_pole';
@@ -65,14 +89,15 @@ export async function requestLoreFolderSettings(folder, { Popup, POPUP_TYPE, POP
         }
         label.append(text, group);
         fieldsContainer.append(label);
-        return { field, select, input };
+        return { field, select, input, positionInputs };
     });
     const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
         okButton: '적용',
         cancelButton: '취소',
         onClosing: popup => {
             if (popup.result !== POPUP_RESULT.AFFIRMATIVE) return true;
-            for (const { select, input } of controls) {
+            for (const { select, input, positionInputs } of controls) {
+                if (positionInputs && !positionInputs.depth.disabled && !positionInputs.depth.reportValidity()) return false;
                 if (select.value !== 'number') continue;
                 input.required = true;
                 if (!input.reportValidity()) return false;
@@ -82,10 +107,15 @@ export async function requestLoreFolderSettings(folder, { Popup, POPUP_TYPE, POP
     }).show();
     if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
     const changes = {};
-    for (const { field, select, input } of controls) {
+    for (const { field, select, input, positionInputs } of controls) {
         if (select.value === '') continue;
         changes[field.key] = select.value === 'number' ? Number(input.value)
             : ['strategy', 'position'].includes(field.key) ? select.value : JSON.parse(select.value);
+        if (positionInputs) {
+            const { depth, outlet } = positionInputs;
+            if (!depth.disabled && depth.value !== '') changes.depth = Number(depth.value);
+            if (!outlet.disabled && outlet.value.trim() !== '') changes.outletName = outlet.value.trim();
+        }
     }
     return changes;
 }
@@ -96,6 +126,14 @@ export function applyLoreEntrySettings(data, entry, changes, setOriginalDataValu
     if (Object.hasOwn(changes, 'position')) {
         const [position, role] = changes.position.split(':');
         setLoreEntryPosition(data, entry, Number(position), role === '' ? null : Number(role), setOriginalDataValue);
+        if (Number(position) === 4 && Object.hasOwn(changes, 'depth')) {
+            entry.depth = changes.depth;
+            setOriginalDataValue(data, entry.uid, 'extensions.depth', entry.depth);
+        }
+        if (Number(position) === 7 && Object.hasOwn(changes, 'outletName')) {
+            entry.outletName = changes.outletName;
+            setOriginalDataValue(data, entry.uid, 'extensions.outlet_name', entry.outletName);
+        }
     }
     for (const { key, path } of fields) {
         if (!path || !Object.hasOwn(changes, key)) continue;
