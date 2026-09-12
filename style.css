@@ -78,7 +78,7 @@
 }
 
 .popup:has(.foldy-lore-bulk-setting-form) {
-    width: min(34rem, calc(100vw - 2rem));
+    width: min(36rem, calc(100vw - 2rem));
     height: min(36rem, calc(100dvh - 3rem));
     min-height: 0;
     min-width: 0;
@@ -127,8 +127,8 @@
 }
 
 @media (min-width: 701px) {
-    .foldy-lore-bulk-fields > label {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    .foldy-move-form .foldy-lore-bulk-fields > label {
+        grid-template-columns: minmax(10em, 1fr) minmax(15em, 2.2fr);
     }
 }
 
