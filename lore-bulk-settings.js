@@ -31,6 +31,11 @@ export async function requestLoreFolderSettings(folder, { Popup, POPUP_TYPE, POP
     fieldsContainer.className = 'foldy-lore-bulk-fields';
     form.append(fieldsContainer);
     const controls = fields.map(field => {
+        if (field.key === 'scanDepth') {
+            const separator = document.createElement('hr');
+            separator.className = 'foldy-lore-bulk-separator';
+            fieldsContainer.append(separator);
+        }
         const label = document.createElement('label');
         const text = document.createElement('span');
         text.textContent = field.label;
