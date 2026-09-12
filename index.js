@@ -1,4 +1,4 @@
-﻿import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
+import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
 import { extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
 import { getChatCompletionPreset, oai_settings, promptManager } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
@@ -6,6 +6,10 @@ import { getPresetManager } from '../../../preset-manager.js';
 import { renderTemplateAsync } from '../../../templates.js';
 import { getSortableDelay, waitUntilCondition } from '../../../utils.js';
 import { accountStorage } from '../../../util/AccountStorage.js';
+import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
+import { SlashCommandNamedArgument, ARGUMENT_TYPE } from '../../../slash-commands/SlashCommandArgument.js';
+import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
+import { registerFoldySlashCommands } from './slash-commands.js';
 import { cloneJson, createBundleActions } from './bundle-utils.js';
 import {
     bindAction,
@@ -19,6 +23,7 @@ import {
     createFolderDialogs,
 } from './folder-dialogs.js';
 import { createClearDataDialog, createFoldyDataCleanup } from './clear-data-dialog.js';
+import { applyLoreEntrySettings, requestLoreFolderSettings } from './lore-bulk-settings.js';
 import { createPromptIntegration } from './prompt-integration.js';
 import {
     createLorebookBundleActions,
@@ -27,8 +32,6 @@ import {
     isLoreOriginalDataCompatible as isLoreOriginalDataCompatibleBase,
     loreEntryLabel,
     LORE_PER_PAGE_KEY,
-    setLoreEntryPosition,
-    setLoreEntryStrategy,
     setLoreFolderEntriesEnabled,
     syncLoreOriginalEntry,
 } from './lorebook-integration.js';
@@ -38,6 +41,7 @@ import {
     saveRegexScriptsWithLatest,
 } from './regex-integration.js';
 import {
+    MAX_SCAN_DEPTH,
     createWorldInfoEntry,
     deleteWIOriginalDataValue,
     deleteWorldInfoEntry,
@@ -109,6 +113,7 @@ let installLorebookIntegration = async () => {};
 let enhanceRegexLists = () => {};
 let installRegexIntegration = async () => {};
 let runtimeEventsRegistered = false;
+let slashCommandsRegistered = false;
 let lastKnownLorebookNames = null;
 const loreWriteQueues = new Map();
 const sessionDisabledFeatures = new Set();
@@ -899,84 +904,11 @@ async function setLoreFolderEnabled(name, data, layout, folderId, enabled) {
     });
 }
 
-async function requestLoreFolderStrategy(folder) {
-    const form = document.createElement('div');
-    form.className = 'foldy-move-form foldy-lore-bulk-setting-form';
-    const title = document.createElement('div');
-    title.className = 'foldy-edit-title';
-    title.textContent = `[${folder.name}] 전략`;
-    const label = document.createElement('label');
-    const text = document.createElement('span');
-    text.textContent = '전략';
-    const select = document.createElement('select');
-    select.className = 'text_pole';
-    [
-        ['normal', '키워드 활성화'],
-        ['constant', '상시 활성화'],
-        ['vectorized', '벡터화됨'],
-    ].forEach(([value, labelText]) => {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = labelText;
-        select.append(option);
-    });
-    label.append(text, select);
-    form.append(title, label);
-    const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
-        okButton: '적용',
-        cancelButton: '취소',
-    }).show();
-    return result === POPUP_RESULT.AFFIRMATIVE ? select.value : null;
-}
-
-async function requestLoreFolderPosition(folder) {
-    const form = document.createElement('div');
-    form.className = 'foldy-move-form foldy-lore-bulk-setting-form';
-    const title = document.createElement('div');
-    title.className = 'foldy-edit-title';
-    title.textContent = `[${folder.name}] 위치`;
-    const label = document.createElement('label');
-    const text = document.createElement('span');
-    text.textContent = '위치';
-    const select = document.createElement('select');
-    select.className = 'text_pole';
-    [
-        ['0:', '캐릭터 정의 전'],
-        ['1:', '캐릭터 정의 후'],
-        ['5:', '↑ EM'],
-        ['6:', '↓ EM'],
-        ['2:', '작가 노트 전'],
-        ['3:', '작가 노트 후'],
-        ['4:0', '@D ⚙️'],
-        ['4:1', '@D 👤'],
-        ['4:2', '@D 🤖'],
-        ['7:', '➡️ outlet'],
-    ].forEach(([value, labelText]) => {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = labelText;
-        select.append(option);
-    });
-    label.append(text, select);
-    form.append(title, label);
-    const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
-        okButton: '적용',
-        cancelButton: '취소',
-    }).show();
-    if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
-    const [position, role] = select.value.split(':');
-    return {
-        position: Number(position),
-        role: role === '' ? null : Number(role),
-    };
-}
-
 function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = () => false) {
-    const strategy = createIconButton('fa-layer-group', 'Set folder item strategy', 'foldy-lore-bulk-setting');
-    bindAction(strategy, 'Set folder item strategy', async () => {
-        const value = await requestLoreFolderStrategy(folder);
-        if (!value) return;
-        if (shouldAbort()) return;
+    const button = createIconButton('fa-sliders', '폴더 내 항목 설정 일괄 변경', 'foldy-lore-bulk-setting');
+    bindAction(button, '폴더 내 항목 설정 일괄 변경', async () => {
+        const changes = await requestLoreFolderSettings(folder, { Popup, POPUP_TYPE, POPUP_RESULT, maxScanDepth: MAX_SCAN_DEPTH });
+        if (!changes || !Object.keys(changes).length || shouldAbort()) return;
         await enqueueLorebookWrite(name, async () => {
             const freshData = await loadWorldInfo(name);
             if (!freshData?.entries) return;
@@ -988,36 +920,13 @@ function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = 
             const freshLayout = normalizeLayout(settings().layouts.lorebooks[owner], allIds);
             const freshFolder = freshLayout.folders.find(value => value.id === folder.id);
             if (!freshFolder) return;
-            for (const id of freshFolder.items) setLoreEntryStrategy(freshData, freshData.entries[id], value, setWIOriginalDataValue);
+            for (const id of freshFolder.items) applyLoreEntrySettings(freshData, freshData.entries[id], changes, setWIOriginalDataValue);
             await saveWorldInfo(name, freshData, true);
             queueLoreRender();
         });
     }, { withErrorToast });
-
-    const position = createIconButton('fa-location-dot', 'Set folder item position', 'foldy-lore-bulk-setting');
-    bindAction(position, 'Set folder item position', async () => {
-        const value = await requestLoreFolderPosition(folder);
-        if (!value) return;
-        if (shouldAbort()) return;
-        await enqueueLorebookWrite(name, async () => {
-            const freshData = await loadWorldInfo(name);
-            if (!freshData?.entries) return;
-            if (!isLoreOriginalDataCompatible(freshData)) return;
-            const owner = lorebookOwnerForName(name);
-            const allIds = Object.values(freshData.entries)
-                .filter(entry => entry && typeof entry === 'object')
-                .map(entry => String(entry.uid));
-            const freshLayout = normalizeLayout(settings().layouts.lorebooks[owner], allIds);
-            const freshFolder = freshLayout.folders.find(value => value.id === folder.id);
-            if (!freshFolder) return;
-            for (const id of freshFolder.items) setLoreEntryPosition(freshData, freshData.entries[id], value.position, value.role, setWIOriginalDataValue);
-            await saveWorldInfo(name, freshData, true);
-            queueLoreRender();
-        });
-    }, { withErrorToast });
-    return [strategy, position];
+    return [button];
 }
-
 ({ applyLorebookFeatureState, installLorebookIntegration, queueLoreRender, resetLorePage } = createLorebookIntegration({
     loreSortValue: LORE_SORT_VALUE,
     sortOrderKey: SORT_ORDER_KEY,
@@ -1154,8 +1063,42 @@ const {
     waitUntilCondition,
 }));
 
+function folderColorCommandContext(target) {
+    const state = settings();
+    let bucket;
+    let owner;
+    let render;
+    if (target === 'prompts') {
+        if (!promptPresetManager()?.getSelectedPresetName?.()) throw new Error('먼저 프롬프트 프리셋을 선택해 주세요.');
+        owner = promptOwnerKey();
+        bucket = state.layouts.prompts;
+        render = renderPrompts;
+    } else if (target === 'lorebooks') {
+        const current = currentLorebookOwner();
+        if (!current.name) throw new Error('먼저 로어북 편집기에서 로어북을 선택해 주세요.');
+        owner = current.owner;
+        bucket = state.layouts.lorebooks;
+        render = () => queueLoreRender();
+    } else {
+        const type = target.slice('regex-'.length);
+        if (type === 'scoped' && !characters?.[this_chid]?.avatar) throw new Error('먼저 캐릭터를 선택해 주세요.');
+        owner = regexOwnerKey(type);
+        bucket = state.layouts.regex[type];
+        render = () => enhanceRegexLists();
+    }
+    return { layout: bucket[owner], save: layout => { bucket[owner] = layout; }, render };
+}
+
 export async function init() {
     settings();
+    if (!slashCommandsRegistered) {
+        registerFoldySlashCommands({
+            SlashCommandParser, SlashCommand, SlashCommandNamedArgument, ARGUMENT_TYPE,
+            getContext: folderColorCommandContext,
+            saveSettingsDebounced,
+        });
+        slashCommandsRegistered = true;
+    }
     await renderSettings();
     await Promise.all([
         installOptionalIntegration({ label: 'lorebook', action: installLorebookIntegration, debugLog }),

@@ -77,6 +77,61 @@
     font-size: 0.9em;
 }
 
+.popup:has(.foldy-lore-bulk-setting-form) {
+    width: min(34rem, calc(100vw - 2rem));
+    height: min(36rem, calc(100dvh - 3rem));
+    min-height: 0;
+    min-width: 0;
+}
+
+.popup:has(.foldy-lore-bulk-setting-form) .popup-body {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-height: 100%;
+    flex: 1;
+}
+
+.popup:has(.foldy-lore-bulk-setting-form) .popup-content {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.foldy-move-form.foldy-lore-bulk-setting-form {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.foldy-lore-bulk-setting-form > p {
+    margin: 0;
+}
+
+.foldy-lore-bulk-fields {
+    display: grid;
+    align-content: start;
+    gap: 0.85em;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+    padding-right: 0.4em;
+}
+
+.popup:has(.foldy-lore-bulk-setting-form) .popup-controls {
+    flex-shrink: 0;
+}
+
+@media (min-width: 701px) {
+    .foldy-lore-bulk-fields > label {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    }
+}
+
 @media (max-width: 480px) {
     #completion_prompt_manager .foldy-toolbar[data-foldy-toolbar="prompt"] {
         flex-wrap: nowrap;
@@ -451,6 +506,17 @@
 .foldy-move-form label > span:first-child {
     color: var(--SmartThemeBodyColor);
     opacity: 0.9;
+}
+
+.foldy-lore-bulk-setting-form .foldy-lore-bulk-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    min-width: 0;
+}
+
+.foldy-lore-bulk-controls input[hidden] {
+    display: none;
 }
 
 .foldy-edit-form .foldy-selection-toolbar,

@@ -55,6 +55,31 @@ Foldy는 프롬프트, 로어북(월드 인포), 정규식 목록에 폴더 기�
 
 초기화는 <b>폴더만 삭제합니다.</b> 원본 프롬프트, 로어북 항목, 정규식 스크립트 내용은 삭제하지 않습니다.
 
+## 슬래시 명령어
+
+채팅 입력창이나 Quick Reply에서 `/foldy-color`로 폴더 색상을 변경할 수 있습니다. 설치·업데이트 후 페이지를 새로고침하면 명령어가 등록됩니다.
+
+```text
+/foldy-color target=prompts folder="내 폴더" reset=true
+/foldy-color target=prompts folder="내 폴더" all=true
+/foldy-color target=lorebooks all=true reset=true
+/foldy-color target=regex-global all=true background=#202020 border=default text=#ffffff
+```
+
+위 예시는 순서대로 특정 폴더의 기본값 복원, 해당 폴더의 색상을 같은 목록 전체에 복사, 현재 로어북의 모든 폴더 기본값 복원, 글로벌 정규식 폴더 전체의 색상 변경입니다.
+
+| 인수 | 설명 |
+| --- | --- |
+| `target` | 필수. `prompts`, `lorebooks`, `regex-global`, `regex-preset`, `regex-scoped` |
+| `folder` | 폴더 이름 또는 ID. 공백이 있는 이름은 큰따옴표로 감쌉니다. |
+| `background`, `border`, `text` | 배경·테두리·이름 색상. HEX, `transparent`, CSS 색상 또는 테마 기본값인 `default` |
+| `reset=true` | 세 가지 색상을 모두 테마 기본값으로 복원. 개별 색상 인수와 함께 사용할 수 없습니다. |
+| `all=true` | 현재 목록의 모든 폴더에 적용. 생략하면 지정한 폴더만 변경합니다. |
+
+`folder`와 `all=true`를 함께 쓰면 기준 폴더의 **세 가지 색상을 모두** 다른 폴더에도 복사합니다. 색상 인수를 함께 지정하면 그 색상을 반영한 뒤 복사합니다. `folder` 없이 `all=true`와 색상을 쓰면 지정한 색상만 변경하고 나머지는 각 폴더의 기존 값을 유지합니다.
+
+대상은 현재 선택된 프롬프트 프리셋, 로어북 편집기에서 선택한 로어북, 글로벌 정규식, 현재 API의 정규식 프리셋 또는 현재 캐릭터의 범위 정규식 목록입니다. 일괄 적용은 해당 목록 안에서만 이루어지며 다른 프리셋·로어북·캐릭터까지 변경하지 않습니다. 폴더 이름·배치와 원본 항목 내용은 유지됩니다. 명령어는 적용한 폴더 수를 파이프로 반환합니다.
+
 ## 참고 사항
 
 - Foldy 폴더는 한 단계만 지원합니다. 폴더 안에 하위 폴더를 만들 수는 없습니다.
