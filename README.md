@@ -6,9 +6,9 @@ Foldy는 SillyTavern의 프롬프트, 로어북(월드 인포), 정규식 목록
 ## 미리보기
 |프롬프트 리스트|폴더 설정|
 |---|---|
-|<img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Prompts%20List.png" width="100%">|<img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Folder%20Options.png" width="100%"> |
+|<img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Prompts%20List.png">|<img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Folder%20Options.png"> |
 |(정규식)내보내기|(로어북) 설정 일괄변경| 
-| <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Regex%20Export.png" width="100%"> | <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/World_options.png" width="100%"> |
+| <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Regex%20Export.png"> | <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/World_options.png"> |
 
 
 ## 주요 기능
@@ -108,7 +108,7 @@ SillyTavern의 확장 프로그램 설정에서 Foldy 항목을 열면 다음 �
 
 | 인수 | 설명 |
 | --- | --- |
-| `target` | 필수. `prompts`, `lorebooks`, `regex-global`, `regex-preset`, `regex-scoped` 중 하나 |
+| `target` | **필수.** `prompts`, `lorebooks`, `regex-global`, `regex-preset`, `regex-scoped` 중 하나 |
 | `folder` | 폴더 이름 또는 ID. 공백이 있는 이름은 큰따옴표로 감쌉니다. |
 | `background` | 배경색. HEX, `transparent`, CSS 색상 또는 `default` |
 | `border` | 테두리색. HEX, `transparent`, CSS 색상 또는 `default` |
