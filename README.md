@@ -4,10 +4,10 @@ Foldy는 SillyTavern의 프롬프트, 로어북(월드 인포), 정규식 목록
 항목이 많아졌을 때 관련 항목을 묶어 접어 두고, 폴더 단위로 순서와 설정을 관리할 수 있습니다.
 
 ## 미리보기
-| 프롬프트 리스트 | 폴더 설정 |
-| <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Prompts%20List.png" width="100%"> | <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Folder%20Options.png" width="100%"> |
-
- | (정규식)내보내기 | (로어북) 설정 일괄변경 | 
+|프롬프트 리스트|폴더 설정|
+|---|---|
+|<img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Prompts%20List.png" width="100%">|<img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Folder%20Options.png" width="100%"> |
+|(정규식)내보내기|(로어북) 설정 일괄변경| 
 | <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/Regex%20Export.png" width="100%"> | <img src="https://raw.githubusercontent.com/st-chd/chd-assets/refs/heads/main/Foldy/World_options.png" width="100%"> |
 
 
