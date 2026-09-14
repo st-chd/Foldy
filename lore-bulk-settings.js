@@ -3,7 +3,7 @@ import { setLoreEntryPosition, setLoreEntryStrategy } from './lorebook-integrati
 const booleanOptions = [['true', '사용'], ['false', '사용 안 함']];
 const defaultOption = ['null', '기본 설정 사용'];
 const fields = [
-    { key: 'strategy', label: '전략', options: [['normal', '키워드 활성화'], ['constant', '상시 활성화'], ['vectorized', '벡터화됨']] },
+    { key: 'strategy', label: '전략', options: [['normal', '🟢키워드 활성화'], ['constant', '🔵상시 활성화'], ['vectorized', '🔗벡터화됨']] },
     { key: 'position', label: '위치', options: [
         ['0:', '캐릭터 정의 전'], ['1:', '캐릭터 정의 후'], ['5:', '↑ EM'], ['6:', '↓ EM'],
         ['2:', '작가 노트 전'], ['3:', '작가 노트 후'], ['4:0', '@D ⚙️'], ['4:1', '@D 👤'],
