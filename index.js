@@ -1153,7 +1153,7 @@ export async function init() {
     }
 }
 
-export async function removeFoldy() {
+async function teardownFoldyRuntime() {
     if (extensionRemoving) return;
     extensionRemoving = true;
 
@@ -1161,20 +1161,28 @@ export async function removeFoldy() {
     unregisterFoldySlashCommand(SlashCommandParser, foldySlashCommand);
     foldySlashCommand = null;
     slashCommandsRegistered = false;
-    for (const [label, action] of [
+    const teardowns = [
         ['프롬프트', teardownPromptIntegration],
         ['로어북', teardownLorebookIntegration],
         ['정규식', teardownRegexIntegration],
-    ]) {
-        try {
-            await action();
-        } catch (error) {
-            debugLog(`${label} 제거 준비 실패`, error, 'warn');
+    ];
+    const teardownResults = await Promise.allSettled(teardowns.map(([, action]) => action()));
+    teardownResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            debugLog(`${teardowns[index][0]} 제거 준비 실패`, result.reason, 'warn');
         }
-    }
+    });
     document.getElementById('foldy_settings')?.remove();
+}
 
-    removeFoldyPersistentData({
+export async function onDelete() {
+    await teardownFoldyRuntime();
+}
+
+export async function onClean() {
+    // SillyTavern only waits five seconds for lifecycle hooks. Remove persisted
+    // data before any renderer teardown so cleanup survives a slow native render.
+    const removedData = removeFoldyPersistentData({
         extensionSettings: extension_settings,
         settingsKey: SETTINGS_KEY,
         accountStorage,
@@ -1183,4 +1191,6 @@ export async function removeFoldy() {
         loreSortValues: [LEGACY_LORE_SORT_VALUE, LORE_SORT_VALUE],
     });
     saveSettingsDebounced();
+    await teardownFoldyRuntime();
+    return removedData;
 }

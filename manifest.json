@@ -11,6 +11,7 @@
     "homePage": "https://github.com/st-chd/Foldy",
     "hooks": {
         "activate": "init",
-        "delete": "removeFoldy"
+        "clean": "onClean",
+        "delete": "onDelete"
     }
 }

@@ -386,7 +386,7 @@ export function createLorebookIntegration({
             };
             const visibleRootNodes = layout.root.filter(isVisibleRootNode);
 
-            const pageContext = `${owner} ${query}`;
+            const pageContext = `${owner}\u0000${query}`;
             if (lorePageContext !== pageContext) {
                 lorePageContext = pageContext;
                 lorePage = 1;
