@@ -9,7 +9,8 @@ import { accountStorage } from '../../../util/AccountStorage.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { SlashCommandNamedArgument, ARGUMENT_TYPE } from '../../../slash-commands/SlashCommandArgument.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { registerFoldySlashCommands } from './slash-commands.js';
+import { registerFoldySlashCommands, unregisterFoldySlashCommand } from './slash-commands.js';
+import { migratePresetRenameSettings, removeFoldyPersistentData } from './lifecycle.js';
 import { cloneJson, createBundleActions } from './bundle-utils.js';
 import {
     bindAction,
@@ -110,11 +111,17 @@ let applyLorebookFeatureState = () => {};
 let queueLoreRender = () => {};
 let resetLorePage = () => {};
 let installLorebookIntegration = async () => {};
+let teardownLorebookIntegration = () => {};
 let enhanceRegexLists = () => {};
 let installRegexIntegration = async () => {};
+let teardownRegexIntegration = () => {};
+let teardownPromptIntegration = async () => {};
 let runtimeEventsRegistered = false;
 let slashCommandsRegistered = false;
+let foldySlashCommand = null;
+let extensionRemoving = false;
 let lastKnownLorebookNames = null;
+const runtimeEventListeners = [];
 const loreWriteQueues = new Map();
 const sessionDisabledFeatures = new Set();
 const foldySettingsStore = createFoldySettingsStore({
@@ -167,29 +174,51 @@ function registerFoldyRuntimeEvents({
     if (runtimeEventsRegistered) return;
     runtimeEventsRegistered = true;
 
-    eventSource.on(eventTypes.PRESET_RENAMED_BEFORE, ({ apiId, oldName, newName }) => {
+    const onPresetRenamed = ({ apiId, oldName, newName }) => {
         revalidateSettings();
-        const oldPromptKey = `${apiId}:${oldName}`;
-        const newPromptKey = `${apiId}:${newName}`;
-        if (settings().layouts.prompts[oldPromptKey] && !settings().layouts.prompts[newPromptKey]) {
-            settings().layouts.prompts[newPromptKey] = settings().layouts.prompts[oldPromptKey];
-            delete settings().layouts.prompts[oldPromptKey];
+        const changed = migratePresetRenameSettings(settings(), {
+            apiId,
+            oldName,
+            newName,
+            ownerKey: foldyOwnerKey,
+            legacyOwnerKey: legacyFoldyOwnerKey,
+        });
+        if (changed) {
             saveSettingsDebounced();
+            renderPrompts();
+            renderRegex();
         }
-    });
-    eventSource.on(eventTypes.PRESET_CHANGED, () => {
+    };
+    const onPresetChanged = () => {
         revalidateSettings();
         renderPrompts();
         renderRegex();
-    });
-    eventSource.on(eventTypes.WORLDINFO_SETTINGS_UPDATED, (...args) => {
+    };
+    const onWorldInfoUpdated = (...args) => {
         revalidateSettings();
         syncLorebookRenameMigration(...args);
-    });
-    eventSource.on(eventTypes.CHAT_CHANGED, () => {
+    };
+    const onChatChanged = () => {
         revalidateSettings();
         renderRegex();
+    };
+    const listeners = [
+        [eventTypes.PRESET_RENAMED, onPresetRenamed],
+        [eventTypes.PRESET_CHANGED, onPresetChanged],
+        [eventTypes.WORLDINFO_SETTINGS_UPDATED, onWorldInfoUpdated],
+        [eventTypes.CHAT_CHANGED, onChatChanged],
+    ];
+    listeners.forEach(([event, listener]) => {
+        eventSource.on(event, listener);
+        runtimeEventListeners.push({ eventSource, event, listener });
     });
+}
+
+function unregisterFoldyRuntimeEvents() {
+    runtimeEventListeners.splice(0).forEach(({ eventSource, event, listener }) => {
+        eventSource.removeListener(event, listener);
+    });
+    runtimeEventsRegistered = false;
 }
 
 function createToolbarFactory({ withErrorToast }) {
@@ -279,7 +308,7 @@ function createSettingsRenderer({
 }
 
 function featureEnabled(name) {
-    return !sessionDisabledFeatures.has(name) && settings().features[name] !== false;
+    return !extensionRemoving && !sessionDisabledFeatures.has(name) && settings().features[name] !== false;
 }
 
 function disableFeatureForCompatibility(name, label, detail) {
@@ -665,6 +694,7 @@ function createLoreRootBulkMoveButton() {
 
 const {
     installPromptIntegration,
+    teardownPromptIntegration: teardownPromptIntegrationImpl,
     renderPrompts,
 } = createPromptIntegration({
     settings,
@@ -699,6 +729,7 @@ const {
     attachMoveToFolderButton,
     createFolderElement,
 });
+teardownPromptIntegration = teardownPromptIntegrationImpl;
 function loreLayoutFromDom(list, sourceLayout, allIds, pageNodeKeys = null) {
     const domNodes = [];
     for (const element of list.children) {
@@ -927,7 +958,7 @@ function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = 
     }, { withErrorToast });
     return [button];
 }
-({ applyLorebookFeatureState, installLorebookIntegration, queueLoreRender, resetLorePage } = createLorebookIntegration({
+({ applyLorebookFeatureState, installLorebookIntegration, teardownLorebookIntegration, queueLoreRender, resetLorePage } = createLorebookIntegration({
     loreSortValue: LORE_SORT_VALUE,
     sortOrderKey: SORT_ORDER_KEY,
     featureEnabled,
@@ -1024,7 +1055,7 @@ const {
     confirmText,
 });
 
-({ enhanceRegexLists, installRegexIntegration } = createRegexIntegration({
+({ enhanceRegexLists, installRegexIntegration, teardownRegexIntegration } = createRegexIntegration({
     regexTypes: REGEX_TYPES,
     scriptTypes: SCRIPT_TYPES,
     featureEnabled,
@@ -1090,9 +1121,10 @@ function folderColorCommandContext(target) {
 }
 
 export async function init() {
+    extensionRemoving = false;
     settings();
     if (!slashCommandsRegistered) {
-        registerFoldySlashCommands({
+        foldySlashCommand = registerFoldySlashCommands({
             SlashCommandParser, SlashCommand, SlashCommandNamedArgument, ARGUMENT_TYPE,
             getContext: folderColorCommandContext,
             saveSettingsDebounced,
@@ -1119,4 +1151,36 @@ export async function init() {
     } catch (error) {
         debugLog('프롬프트 폴더 초기화 실패', error);
     }
+}
+
+export async function removeFoldy() {
+    if (extensionRemoving) return;
+    extensionRemoving = true;
+
+    unregisterFoldyRuntimeEvents();
+    unregisterFoldySlashCommand(SlashCommandParser, foldySlashCommand);
+    foldySlashCommand = null;
+    slashCommandsRegistered = false;
+    for (const [label, action] of [
+        ['프롬프트', teardownPromptIntegration],
+        ['로어북', teardownLorebookIntegration],
+        ['정규식', teardownRegexIntegration],
+    ]) {
+        try {
+            await action();
+        } catch (error) {
+            debugLog(`${label} 제거 준비 실패`, error, 'warn');
+        }
+    }
+    document.getElementById('foldy_settings')?.remove();
+
+    removeFoldyPersistentData({
+        extensionSettings: extension_settings,
+        settingsKey: SETTINGS_KEY,
+        accountStorage,
+        lorePerPageKey: LORE_PER_PAGE_KEY,
+        sortOrderKey: SORT_ORDER_KEY,
+        loreSortValues: [LEGACY_LORE_SORT_VALUE, LORE_SORT_VALUE],
+    });
+    saveSettingsDebounced();
 }

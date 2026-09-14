@@ -54,7 +54,7 @@ function createPromptInstaller({
     let originalRenderItems = null;
     let originalMakeDraggable = null;
 
-    return async function installPromptIntegration() {
+    async function installPromptIntegration() {
         await waitUntilCondition(() => promptManager && promptPresetManager(), 30000, 100);
         const manager = promptManager;
         if (typeof manager.renderPromptManagerListItems !== 'function' || typeof manager.makeDraggable !== 'function') {
@@ -95,7 +95,19 @@ function createPromptInstaller({
             return result;
         };
         manager.render(false);
-    };
+    }
+
+    async function teardownPromptIntegration() {
+        const manager = promptManager;
+        if (!manager?.__foldyInstalled) return;
+        if (originalRenderItems) manager.renderPromptManagerListItems = originalRenderItems;
+        if (originalMakeDraggable) manager.makeDraggable = originalMakeDraggable;
+        delete manager.__foldyInstalled;
+        document.querySelector('.foldy-toolbar[data-foldy-toolbar="prompt"]')?.remove();
+        await manager.render(false);
+    }
+
+    return { installPromptIntegration, teardownPromptIntegration };
 }
 
 export function createPromptIntegration({
@@ -367,7 +379,7 @@ export function createPromptIntegration({
         placePromptToolbar(toolbar, rangeBlock);
     }
 
-    const installPromptIntegration = createPromptInstaller({
+    const { installPromptIntegration, teardownPromptIntegration } = createPromptInstaller({
         waitUntilCondition,
         promptManager,
         promptPresetManager,
@@ -381,6 +393,7 @@ export function createPromptIntegration({
 
     return {
         installPromptIntegration,
+        teardownPromptIntegration,
         renderPrompts: () => promptManager?.render?.(false),
         readPromptLayout,
         persistPromptLayout,

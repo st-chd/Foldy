@@ -590,9 +590,37 @@ export function createLorebookIntegration({
         }
     }
 
+    function teardownLorebookIntegration() {
+        if (loreSearchRenderTimer) clearTimeout(loreSearchRenderTimer);
+        loreSearchRenderTimer = 0;
+        loreObserver?.disconnect();
+        loreObserver = null;
+        loreListenersAbort?.abort();
+        loreListenersAbort = null;
+        $('#world_editor_select').off('change.foldy');
+
+        const list = document.getElementById('world_popup_entries_list');
+        destroyLoreSortables(list);
+        list?.classList.remove('foldy-lore-root', 'foldy-searching', 'foldy-lore-pending');
+        document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
+        [
+            'foldy_lore_create',
+            'foldy_lore_import',
+            'foldy_lore_export',
+            'foldy_lore_expand_all',
+            'foldy_lore_collapse_all',
+            'foldy_lore_root_bulk_move',
+        ].forEach(id => document.getElementById(id)?.remove());
+        document.querySelector(`#world_info_sort_order option[value="${loreSortValue}"]`)?.remove();
+        sortingLore = false;
+        currentLoreLayout = null;
+        lorePageContext = null;
+    }
+
     return {
         applyLorebookFeatureState,
         installLorebookIntegration,
+        teardownLorebookIntegration,
         queueLoreRender,
         renderLorebookFolders,
         resetLorePage,

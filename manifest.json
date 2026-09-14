@@ -10,6 +10,7 @@
     "version": "1.7.0",
     "homePage": "https://github.com/st-chd/Foldy",
     "hooks": {
-        "activate": "init"
+        "activate": "init",
+        "delete": "removeFoldy"
     }
 }

@@ -64,7 +64,7 @@ export function registerFoldySlashCommands({
     const named = (name, description, options = {}) => SlashCommandNamedArgument.fromProps({
         name, description, typeList: [ARGUMENT_TYPE.STRING], ...options,
     });
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+    const command = SlashCommand.fromProps({
         name: 'foldy-color',
         callback: async args => {
             if (!TARGETS.includes(args.target)) throw new Error(`target은 ${TARGETS.join(', ')} 중 하나여야 합니다.`);
@@ -93,5 +93,14 @@ export function registerFoldySlashCommands({
             <div>folder와 all=true를 함께 쓰면 기준 폴더의 세 가지 색상을 모두 복사합니다.
             folder 없이 all=true와 색상을 지정하면 지정한 색상만 변경합니다.
             reset=true와 개별 색상은 함께 사용할 수 없습니다. 결과는 적용한 폴더 수입니다.</div>`,
-    }));
+    });
+    SlashCommandParser.addCommandObject(command);
+    return command;
+}
+
+export function unregisterFoldySlashCommand(SlashCommandParser, command) {
+    if (!command) return;
+    for (const [name, registered] of Object.entries(SlashCommandParser.commands)) {
+        if (registered === command) delete SlashCommandParser.commands[name];
+    }
 }

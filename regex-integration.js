@@ -76,6 +76,13 @@ export function isFoldyFolderActionsMutation(mutation) {
     return nodes.length > 0 && nodes.every(node => node.nodeType === 1 && node.classList?.contains('foldy-folder-actions'));
 }
 
+export function rootOrderChanged(previousLayout, nextLayout) {
+    const previous = previousLayout?.root || [];
+    const next = nextLayout?.root || [];
+    return previous.length !== next.length
+        || next.some((node, index) => node.type !== previous[index]?.type || node.id !== previous[index]?.id);
+}
+
 export function createRegexIntegration({
     regexTypes,
     scriptTypes,
@@ -313,7 +320,7 @@ export function createRegexIntegration({
             const updated = layoutWithUpdatedFolder(layout, folder.id, folderValues, { applyStyleToAll });
             const moved = layoutWithMovedFolder(updated.layout, folder.id, afterKey);
             currentRegexLayouts[typeKey] = moved.layout;
-            await persistRegexLayout(typeKey, owner, moved.layout, false);
+            await persistRegexLayout(typeKey, owner, moved.layout, rootOrderChanged(layout, moved.layout));
             rerender();
         };
         const onDelete = async id => {
@@ -448,7 +455,7 @@ export function createRegexIntegration({
                 debugLog('정규식 폴더 표시 실패', error);
                 toastr.error('정규식 폴더를 표시하지 못했습니다.');
             } finally {
-                if (root && regexObserver) {
+                if (root && regexObserver && featureEnabled('regex')) {
                     regexObserver.observe(root, { childList: true, subtree: true });
                 }
             }
@@ -470,7 +477,7 @@ export function createRegexIntegration({
             }
             return;
         }
-        regexObserver = new MutationObserver(mutations => {
+        regexObserver ??= new MutationObserver(mutations => {
             // 모바일 메뉴 이동으로 재렌더링하면 메뉴가 바로 닫힌다.
             if (mutations.length && mutations.every(isFoldyFolderActionsMutation)) return;
             if (regexRenderGate.isRunning() || sortingRegex || regexRenderGate.isQueued()) return;
@@ -483,9 +490,22 @@ export function createRegexIntegration({
         enhanceRegexLists();
     }
 
+    function teardownRegexIntegration() {
+        regexObserver?.disconnect();
+        regexObserver = null;
+        Object.keys(regexTypes).forEach(typeKey => {
+            const list = document.querySelector(regexTypes[typeKey].selector);
+            if (list) unwrapRegexFolders(list);
+            currentRegexLayouts[typeKey] = null;
+        });
+        pendingRegexMoves.clear();
+        sortingRegex = false;
+    }
+
     return {
         enhanceRegexLists,
         installRegexIntegration,
+        teardownRegexIntegration,
     };
 }
 
