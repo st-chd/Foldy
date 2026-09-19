@@ -93,6 +93,7 @@ export function createLorebookIntegration({
     let currentLoreLayout = null;
     let lorePage = 1;
     let lorePageContext = null;
+    let loreGeneration = 0;
 
     function lorePageSize() {
         const stored = Number(accountStorage.getItem(LORE_PER_PAGE_KEY));
@@ -215,9 +216,11 @@ export function createLorebookIntegration({
         }
         const { name, owner } = currentLorebookOwner();
         if (!name) return;
+        const renderGeneration = loreGeneration;
         await loreRenderGate.run(async () => {
             try {
             const data = await loadWorldInfo(name);
+            if (renderGeneration !== loreGeneration || !featureEnabled('lorebooks')) return;
             if (!data?.entries) return;
             const list = document.getElementById('world_popup_entries_list');
             if (!list) return;
@@ -591,6 +594,7 @@ export function createLorebookIntegration({
     }
 
     function teardownLorebookIntegration() {
+        loreGeneration++;
         if (loreSearchRenderTimer) clearTimeout(loreSearchRenderTimer);
         loreSearchRenderTimer = 0;
         loreObserver?.disconnect();

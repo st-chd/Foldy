@@ -34,16 +34,21 @@ import {
 export async function saveRegexScriptsWithLatest(scripts, type, {
     getScriptsByType,
     saveScriptsByType,
+    isCurrent = () => true,
+    maxAttempts = 3,
 }) {
     let pending = scripts;
-    while (true) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (!isCurrent()) throw new Error('정규식 저장 대상이 변경되었습니다.');
         const savedSnapshot = JSON.stringify(pending);
         await saveScriptsByType(pending, type);
 
+        if (!isCurrent()) throw new Error('정규식 저장 대상이 변경되었습니다.');
         const latest = getScriptsByType(type);
-        if (latest === pending && JSON.stringify(latest) === savedSnapshot) return;
+        if (JSON.stringify(latest) === savedSnapshot) return;
         pending = latest;
     }
+    throw new Error('정규식 목록이 계속 변경되어 저장을 완료하지 못했습니다.');
 }
 
 export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
@@ -85,7 +90,6 @@ export function rootOrderChanged(previousLayout, nextLayout) {
 
 export function createRegexIntegration({
     regexTypes,
-    scriptTypes,
     featureEnabled,
     disableFeatureForCompatibility,
     ownerCollapsed,
@@ -115,11 +119,6 @@ export function createRegexIntegration({
     getSortableDelay,
     setupFolderSortablesImpl = setupFolderSortables,
     regexLayoutFromDomImpl = regexLayoutFromDom,
-    allowScopedScripts,
-    allowPresetScripts,
-    getScopedCharacter,
-    getCurrentPresetAPI,
-    getCurrentPresetName,
     debugLog,
     waitUntilCondition,
 }) {
@@ -129,7 +128,7 @@ export function createRegexIntegration({
     const currentRegexLayouts = { global: null, scoped: null, preset: null };
     const pendingRegexMoves = new Set();
 
-    async function setRegexFolderEnabled(typeKey, layout, folderId, enabled) {
+    async function setRegexFolderEnabled(typeKey, owner, layout, folderId, enabled) {
         const folder = layout.folders.find(value => value.id === folderId);
         if (!folder) return;
         const type = regexTypes[typeKey].scriptType;
@@ -138,42 +137,20 @@ export function createRegexIntegration({
         scripts.forEach(script => {
             if (ids.has(String(script.id))) script.disabled = !enabled;
         });
-        await saveScriptsByType(scripts, type);
+        await saveScriptsByType(scripts, type, owner);
         saveSettingsDebounced();
         if (getCurrentChatId()) await reloadCurrentChat();
         enhanceRegexLists();
     }
 
-    function restoreRegexToggleHandlers(item) {
-        const typeKey = Object.keys(regexTypes).find(key => document.querySelector(regexTypes[key].selector) === item.closest(regexTypes[key].selector));
-        const scriptId = item.id;
-        if (!typeKey || !scriptId) return;
-        const type = regexTypes[typeKey].scriptType;
+    function removeFoldyRegexToggleHandlers(item) {
         const checkbox = item.querySelector('.disable_regex');
         const toggleOn = item.querySelector('.regex-toggle-on');
         const toggleOff = item.querySelector('.regex-toggle-off');
         if (!checkbox || !toggleOn || !toggleOff) return;
-
-        $(checkbox).off('input.foldyRestore').on('input.foldyRestore', async function () {
-            const scripts = getScriptsByType(type);
-            const script = scripts.find(value => String(value.id) === scriptId);
-            if (!script) return;
-            script.disabled = !!this.checked;
-            await saveScriptsByType(scripts, type);
-            if (type === scriptTypes.SCOPED) allowScopedScripts(getScopedCharacter());
-            if (type === scriptTypes.PRESET) allowPresetScripts(getCurrentPresetAPI(), getCurrentPresetName());
-            saveSettingsDebounced();
-            if (getCurrentChatId()) await reloadCurrentChat();
-            enhanceRegexLists();
-        });
-        $(toggleOn).off('click.foldyRestore').on('click.foldyRestore', () => {
-            checkbox.checked = false;
-            $(checkbox).trigger('input');
-        });
-        $(toggleOff).off('click.foldyRestore').on('click.foldyRestore', () => {
-            checkbox.checked = true;
-            $(checkbox).trigger('input');
-        });
+        $(checkbox).off('.foldyRestore');
+        $(toggleOn).off('.foldyRestore');
+        $(toggleOff).off('.foldyRestore');
     }
 
     function unwrapRegexFolders(list) {
@@ -192,13 +169,15 @@ export function createRegexIntegration({
             if (id && seen.has(id)) return;
             if (id) seen.add(id);
             item.querySelectorAll('.foldy-move-to-folder').forEach(button => button.remove());
-            restoreRegexToggleHandlers(item);
+            removeFoldyRegexToggleHandlers(item);
             items.push(item);
         });
         list.replaceChildren(...items);
         list.classList.remove('foldy-regex-root', 'foldy-dropping-into-folder');
         list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
         list.closest('.inline-drawer-content, .regex_settings, #regex_container')?.querySelector('.foldy-toolbar')?.remove();
+        const nativeSortableOptions = $list.data('foldyNativeSortableOptions');
+        if (nativeSortableOptions && !$list.sortable('instance')) $list.sortable(nativeSortableOptions);
     }
 
     function setupRegexSortable(typeKey, owner, layout) {
@@ -260,6 +239,9 @@ export function createRegexIntegration({
             return;
         }
         const $list = $(list);
+        if (!$list.data('foldyNativeSortableOptions') && $list.sortable('instance')) {
+            $list.data('foldyNativeSortableOptions', $list.sortable('option'));
+        }
         if ($list.sortable('instance')) $list.sortable('destroy');
         list.querySelectorAll('.foldy-regex-items').forEach(element => {
             const $element = $(element);
@@ -332,7 +314,7 @@ export function createRegexIntegration({
             if (mode === 'contents') {
                 const type = regexTypes[typeKey].scriptType;
                 const ids = new Set(folder.items.map(String));
-                await saveScriptsByType(getScriptsByType(type).filter(script => !ids.has(String(script.id))), type);
+                await saveScriptsByType(getScriptsByType(type).filter(script => !ids.has(String(script.id))), type, owner);
                 saveSettingsDebounced();
             }
             const nextLayout = removeFolder(layout, id, { deleteContents: mode === 'contents' });
@@ -371,7 +353,7 @@ export function createRegexIntegration({
                 state,
                 onStateToggle: async (id, currentState) => {
                     if (rerenderIfRegexContextChanged()) return;
-                    await setRegexFolderEnabled(typeKey, layout, id, currentState !== 'on');
+                    await setRegexFolderEnabled(typeKey, owner, layout, id, currentState !== 'on');
                 },
                 onBulkMove: async id => {
                     const labels = new Map([...scriptsById.entries()].map(([scriptId, script]) => [
@@ -418,7 +400,12 @@ export function createRegexIntegration({
             const { owner: targetOwner, layout: targetLayout } = readRegexLayout(values.typeKey);
             const result = layoutWithAddedFolder(targetLayout, values.name, values.itemIds, undefined, { afterKey: values.afterKey });
             collapseNewFolder('regex', `${values.typeKey}:${targetOwner}`, result.folder.id);
-            await persistRegexLayout(values.typeKey, targetOwner, result.layout, false);
+            await persistRegexLayout(
+                values.typeKey,
+                targetOwner,
+                result.layout,
+                rootOrderChanged(targetLayout, result.layout),
+            );
             rerender();
         };
         const createHostTypeKey = Object.keys(regexTypes).find(key => document.querySelector(regexTypes[key].selector));
@@ -765,7 +752,7 @@ export function createRegexBundleActions({
         settings().layouts.regex[typeKey][owner] = layout;
         saveSettingsDebounced();
         const orderedScripts = orderItemsByLayout(layout, mergedScripts);
-        await saveScriptsByType(orderedScripts, type);
+        await saveScriptsByType(orderedScripts, type, owner);
         await refreshRegexScripts();
         if (getCurrentChatId()) await reloadCurrentChat();
         enhanceRegexLists();

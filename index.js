@@ -56,8 +56,6 @@ import {
     world_names,
 } from '../../../world-info.js';
 import {
-    allowPresetScripts,
-    allowScopedScripts,
     getCurrentPresetAPI,
     getCurrentPresetName,
     getScriptsByType,
@@ -1012,10 +1010,18 @@ function readRegexLayout(typeKey) {
     return { owner, layout: normalizeLayout(raw, regexItemIds(typeKey)) };
 }
 
-async function saveRegexScriptsSafely(scripts, type) {
+function regexTypeKeyForScriptType(type) {
+    return Object.keys(REGEX_TYPES).find(typeKey => REGEX_TYPES[typeKey].scriptType === type) || '';
+}
+
+async function saveRegexScriptsSafely(scripts, type, expectedOwner = null) {
+    const typeKey = regexTypeKeyForScriptType(type);
+    if (!typeKey) throw new Error('알 수 없는 정규식 저장 유형입니다.');
+    const owner = expectedOwner ?? regexOwnerKey(typeKey);
     await saveRegexScriptsWithLatest(scripts, type, {
         getScriptsByType,
         saveScriptsByType,
+        isCurrent: () => !extensionRemoving && regexOwnerKey(typeKey) === owner,
     });
 }
 
@@ -1026,7 +1032,7 @@ async function persistRegexLayout(typeKey, owner, layout, reorder = true) {
     const type = REGEX_TYPES[typeKey].scriptType;
     const scripts = getScriptsByType(type);
     const reordered = orderItemsByLayout(layout, scripts);
-    await saveRegexScriptsSafely(reordered, type);
+    await saveRegexScriptsSafely(reordered, type, owner);
 }
 
 const {
@@ -1057,7 +1063,6 @@ const {
 
 ({ enhanceRegexLists, installRegexIntegration, teardownRegexIntegration } = createRegexIntegration({
     regexTypes: REGEX_TYPES,
-    scriptTypes: SCRIPT_TYPES,
     featureEnabled,
     disableFeatureForCompatibility,
     ownerCollapsed,
@@ -1085,11 +1090,6 @@ const {
     ensureToolbar,
     shouldRejectDomLayout,
     getSortableDelay,
-    allowScopedScripts,
-    allowPresetScripts,
-    getScopedCharacter: () => characters?.[this_chid],
-    getCurrentPresetAPI,
-    getCurrentPresetName,
     debugLog,
     waitUntilCondition,
 }));
@@ -1180,8 +1180,8 @@ export async function onDelete() {
 }
 
 export async function onClean() {
-    // SillyTavern only waits five seconds for lifecycle hooks. Remove persisted
-    // data before any renderer teardown so cleanup survives a slow native render.
+    // 실행 중인 렌더를 먼저 무효화하고, 느린 UI 복구를 기다리는 동안 저장 데이터는 즉시 지운다.
+    const teardown = teardownFoldyRuntime();
     const removedData = removeFoldyPersistentData({
         extensionSettings: extension_settings,
         settingsKey: SETTINGS_KEY,
@@ -1191,6 +1191,6 @@ export async function onClean() {
         loreSortValues: [LEGACY_LORE_SORT_VALUE, LORE_SORT_VALUE],
     });
     saveSettingsDebounced();
-    await teardownFoldyRuntime();
+    await teardown;
     return removedData;
 }
