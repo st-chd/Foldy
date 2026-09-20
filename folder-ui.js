@@ -96,6 +96,12 @@ function isFoldyMobileMenuActive() {
     return typeof window.matchMedia === 'function' && window.matchMedia(FOLDY_MOBILE_MENU_QUERY).matches;
 }
 
+function stopPortaledMenuPointerPropagation(event) {
+    if (event.currentTarget.classList.contains('foldy-folder-actions-portal')) {
+        event.stopPropagation();
+    }
+}
+
 // 모바일 드로어의 backdrop-filter가 fixed 메뉴를 가리지 않도록 body로 옮긴다.
 function openFoldyFolderMenu(anchor, actions) {
     if (!isFoldyMobileMenuActive()) return;
@@ -376,6 +382,8 @@ export function createFolderElement(folder, {
     const actions = document.createElement('div');
     actions.className = 'foldy-folder-actions';
     actions.setAttribute('role', 'menu');
+    actions.addEventListener('touchstart', stopPortaledMenuPointerPropagation, { passive: true });
+    actions.addEventListener('mousedown', stopPortaledMenuPointerPropagation);
     let outsideClickAbort = null;
     const closeActions = () => {
         element.classList.remove('is-actions-open');

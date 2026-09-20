@@ -7,9 +7,11 @@
     "js": "index.js",
     "css": "style.css",
     "author": "CH",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "homePage": "https://github.com/st-chd/Foldy",
     "hooks": {
-        "activate": "init"
+        "activate": "init",
+        "clean": "onClean",
+        "delete": "onDelete"
     }
 }

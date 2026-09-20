@@ -54,7 +54,7 @@ function createPromptInstaller({
     let originalRenderItems = null;
     let originalMakeDraggable = null;
 
-    return async function installPromptIntegration() {
+    async function installPromptIntegration() {
         await waitUntilCondition(() => promptManager && promptPresetManager(), 30000, 100);
         const manager = promptManager;
         if (typeof manager.renderPromptManagerListItems !== 'function' || typeof manager.makeDraggable !== 'function') {
@@ -95,7 +95,19 @@ function createPromptInstaller({
             return result;
         };
         manager.render(false);
-    };
+    }
+
+    async function teardownPromptIntegration() {
+        const manager = promptManager;
+        if (!manager?.__foldyInstalled) return;
+        if (originalRenderItems) manager.renderPromptManagerListItems = originalRenderItems;
+        if (originalMakeDraggable) manager.makeDraggable = originalMakeDraggable;
+        delete manager.__foldyInstalled;
+        document.querySelector('.foldy-toolbar[data-foldy-toolbar="prompt"]')?.remove();
+        await manager.render(false);
+    }
+
+    return { installPromptIntegration, teardownPromptIntegration };
 }
 
 export function createPromptIntegration({
@@ -136,7 +148,7 @@ export function createPromptIntegration({
     function readPromptLayout(manager = promptManager, normalizeOptions = {}) {
         const owner = promptOwnerKey();
         const raw = settings().layouts.prompts[owner];
-        return { owner, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
+        return { owner, hasStoredLayout: raw !== undefined, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
     }
 
     async function persistPromptLayout(owner, layout, manager = promptManager) {
@@ -184,11 +196,12 @@ export function createPromptIntegration({
     async function enhancePromptList(manager) {
         const list = manager.listElement;
         if (!list || !featureEnabled('prompts')) return;
-        const { owner, layout: storedLayout } = readPromptLayout(manager);
+        const { owner, hasStoredLayout, layout: storedLayout } = readPromptLayout(manager);
         const layout = layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
             onSkip: detail => debugLog('외부에서 바뀐 프롬프트 순서를 따라가지 않았습니다.', detail),
         });
-        if (layout !== storedLayout) {
+        // 저장값이 없는 기본 배치는 화면에서만 계산해 초기화 직후 root가 다시 생기지 않게 한다.
+        if (hasStoredLayout && layout !== storedLayout) {
             settings().layouts.prompts[owner] = layout;
             saveSettingsDebounced();
         }
@@ -367,7 +380,7 @@ export function createPromptIntegration({
         placePromptToolbar(toolbar, rangeBlock);
     }
 
-    const installPromptIntegration = createPromptInstaller({
+    const { installPromptIntegration, teardownPromptIntegration } = createPromptInstaller({
         waitUntilCondition,
         promptManager,
         promptPresetManager,
@@ -381,6 +394,7 @@ export function createPromptIntegration({
 
     return {
         installPromptIntegration,
+        teardownPromptIntegration,
         renderPrompts: () => promptManager?.render?.(false),
         readPromptLayout,
         persistPromptLayout,

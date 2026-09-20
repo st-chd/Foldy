@@ -93,6 +93,7 @@ export function createLorebookIntegration({
     let currentLoreLayout = null;
     let lorePage = 1;
     let lorePageContext = null;
+    let loreGeneration = 0;
 
     function lorePageSize() {
         const stored = Number(accountStorage.getItem(LORE_PER_PAGE_KEY));
@@ -215,17 +216,21 @@ export function createLorebookIntegration({
         }
         const { name, owner } = currentLorebookOwner();
         if (!name) return;
+        const renderGeneration = loreGeneration;
         await loreRenderGate.run(async () => {
             try {
             const data = await loadWorldInfo(name);
+            if (renderGeneration !== loreGeneration || !featureEnabled('lorebooks')) return;
             if (!data?.entries) return;
             const list = document.getElementById('world_popup_entries_list');
             if (!list) return;
             const allEntries = Object.values(data.entries).filter(entry => entry && typeof entry === 'object');
             const allIds = allEntries.map(entry => String(entry.uid));
-            const layout = normalizeLayout(settings().layouts.lorebooks[owner], allIds);
+            const storedLayout = settings().layouts.lorebooks[owner];
+            const layout = normalizeLayout(storedLayout, allIds);
             currentLoreLayout = layout;
-            await persistLoreLayout(owner, layout);
+            // 초기화된 기본 배치는 화면에서만 계산하고, 저장된 사용자 배치가 있을 때만 정규화 결과를 저장한다.
+            if (storedLayout !== undefined) await persistLoreLayout(owner, layout);
             const query = String($('#world_info_search').val() ?? '').trim();
             const visibleEntries = query ? allEntries.filter(entry => matchesLoreQuery(entry, query)) : allEntries;
             const visibleIds = new Set(visibleEntries.map(entry => String(entry.uid)));
@@ -386,7 +391,7 @@ export function createLorebookIntegration({
             };
             const visibleRootNodes = layout.root.filter(isVisibleRootNode);
 
-            const pageContext = `${owner} ${query}`;
+            const pageContext = `${owner}\u0000${query}`;
             if (lorePageContext !== pageContext) {
                 lorePageContext = pageContext;
                 lorePage = 1;
@@ -590,9 +595,38 @@ export function createLorebookIntegration({
         }
     }
 
+    function teardownLorebookIntegration() {
+        loreGeneration++;
+        if (loreSearchRenderTimer) clearTimeout(loreSearchRenderTimer);
+        loreSearchRenderTimer = 0;
+        loreObserver?.disconnect();
+        loreObserver = null;
+        loreListenersAbort?.abort();
+        loreListenersAbort = null;
+        $('#world_editor_select').off('change.foldy');
+
+        const list = document.getElementById('world_popup_entries_list');
+        destroyLoreSortables(list);
+        list?.classList.remove('foldy-lore-root', 'foldy-searching', 'foldy-lore-pending');
+        document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
+        [
+            'foldy_lore_create',
+            'foldy_lore_import',
+            'foldy_lore_export',
+            'foldy_lore_expand_all',
+            'foldy_lore_collapse_all',
+            'foldy_lore_root_bulk_move',
+        ].forEach(id => document.getElementById(id)?.remove());
+        document.querySelector(`#world_info_sort_order option[value="${loreSortValue}"]`)?.remove();
+        sortingLore = false;
+        currentLoreLayout = null;
+        lorePageContext = null;
+    }
+
     return {
         applyLorebookFeatureState,
         installLorebookIntegration,
+        teardownLorebookIntegration,
         queueLoreRender,
         renderLorebookFolders,
         resetLorePage,

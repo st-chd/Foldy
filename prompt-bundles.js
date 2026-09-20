@@ -352,7 +352,8 @@ export function createPromptBundleActions({
         const presetSettings = cloneJson(bundle.presetSettings || currentPromptPresetSettings(presetName));
         await presetManager.savePreset(presetName, presetSettings);
         const presetValue = presetManager.findPreset(presetName);
-        if (presetValue !== undefined) presetManager.selectPreset(presetValue);
+        if (presetValue === undefined) throw new Error(`저장한 프리셋을 찾을 수 없습니다: ${presetName}`);
+        await presetManager.selectPreset(presetValue);
         await waitUntilCondition(() => presetManager.getSelectedPresetName() === presetName, 5000, 100);
 
         const importedPrompts = bundle.prompts.filter(prompt => prompt?.identifier);
