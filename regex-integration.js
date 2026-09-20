@@ -51,6 +51,28 @@ export async function saveRegexScriptsWithLatest(scripts, type, {
     throw new Error('정규식 목록이 계속 변경되어 저장을 완료하지 못했습니다.');
 }
 
+export function createRegexToggleHandler({ id, type, owner, isCurrent, getScriptsByType, saveScriptsByType, afterSave, onError }) {
+    return async function onRegexToggle(event) {
+        // 호스트 핸들러는 이동 전 배열 인덱스를 기억하므로 ID 기반 저장으로 대신 처리한다.
+        event.stopImmediatePropagation();
+        const checkbox = event.currentTarget;
+        let previous;
+        try {
+            if (!isCurrent()) throw new Error('정규식 저장 대상이 변경되었습니다.');
+            const scripts = getScriptsByType(type);
+            const script = scripts.find(value => String(value.id) === id);
+            if (!script) throw new Error('정규식 항목을 찾을 수 없습니다.');
+            previous = script.disabled;
+            script.disabled = !!checkbox.checked;
+            await saveScriptsByType(scripts, type, owner);
+            if (isCurrent()) await afterSave();
+        } catch (error) {
+            if (previous !== undefined) checkbox.checked = !!previous;
+            onError(error);
+        }
+    };
+}
+
 export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
     const visibleIds = new Set([...list.querySelectorAll('.regex-script-label')]
         .map(element => element.id)
@@ -102,6 +124,8 @@ export function createRegexIntegration({
     saveScriptsByType,
     getCurrentChatId,
     reloadCurrentChat,
+    refreshRegexScripts,
+    allowRegexScripts,
     saveSettingsDebounced,
     createFolderElement,
     requestFolderSettings,
@@ -127,6 +151,39 @@ export function createRegexIntegration({
     let sortingRegex = false;
     const currentRegexLayouts = { global: null, scoped: null, preset: null };
     const pendingRegexMoves = new Set();
+    let regexDisposed = false;
+
+    function bindRegexToggle(item, typeKey, owner) {
+        const checkbox = item.querySelector('.disable_regex');
+        if (!checkbox) return;
+        const handler = createRegexToggleHandler({
+            id: String(item.id),
+            type: regexTypes[typeKey].scriptType,
+            owner,
+            isCurrent: () => !regexDisposed && regexOwnerKey(typeKey) === owner,
+            getScriptsByType,
+            saveScriptsByType,
+            afterSave: async () => {
+                allowRegexScripts(typeKey);
+                saveSettingsDebounced();
+                if (getCurrentChatId()) await reloadCurrentChat();
+                enhanceRegexLists();
+            },
+            onError: error => {
+                debugLog('정규식 활성 상태 저장 실패', error);
+                toastr.error('정규식 활성 상태를 저장하지 못했습니다.');
+            },
+        });
+        // 아이콘은 jQuery trigger('input')을 사용하므로 네이티브 캡처 리스너로 차단할 수 없다.
+        $(checkbox).off('input').on('input.foldySafe', handler);
+        for (const [selector, disabled] of [['.regex-toggle-on', true], ['.regex-toggle-off', false]]) {
+            $(item.querySelector(selector)).off('click').on('click.foldySafe', event => {
+                // 같은 DOM을 유지하므로 label의 기본 클릭이 체크박스를 다시 뒤집지 않게 한다.
+                event.preventDefault();
+                $(checkbox).prop('checked', disabled).trigger('input');
+            });
+        }
+    }
 
     async function setRegexFolderEnabled(typeKey, owner, layout, folderId, enabled) {
         const folder = layout.folders.find(value => value.id === folderId);
@@ -257,6 +314,7 @@ export function createRegexIntegration({
             const script = scriptsById.get(id);
             const toggle = element.querySelector('.disable_regex');
             if (script && toggle) toggle.checked = !!script.disabled;
+            bindRegexToggle(element, typeKey, owner);
         });
         const collapsed = ownerCollapsed('regex', `${typeKey}:${owner}`);
         const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
@@ -450,6 +508,7 @@ export function createRegexIntegration({
     }
 
     async function installRegexIntegration() {
+        regexDisposed = false;
         await waitUntilCondition(() => document.getElementById('regex_container')
             && Object.values(regexTypes).some(value => document.querySelector(value.selector)), 30000, 100, { rejectOnTimeout: false });
         const root = document.getElementById('regex_container');
@@ -477,7 +536,8 @@ export function createRegexIntegration({
         enhanceRegexLists();
     }
 
-    function teardownRegexIntegration() {
+    async function teardownRegexIntegration() {
+        regexDisposed = true;
         regexObserver?.disconnect();
         regexObserver = null;
         Object.keys(regexTypes).forEach(typeKey => {
@@ -487,6 +547,8 @@ export function createRegexIntegration({
         });
         pendingRegexMoves.clear();
         sortingRegex = false;
+        // 보관된 DOM의 오래된 저장 핸들러를 되살리지 않고 호스트가 현재 순서로 다시 만든다.
+        await refreshRegexScripts();
     }
 
     return {
