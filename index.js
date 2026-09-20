@@ -263,10 +263,10 @@ function createSettingsRenderer({
             $('#foldy_enable_lorebooks').prop('checked', featureEnabled('lorebooks'));
             $('#foldy_enable_regex').prop('checked', featureEnabled('regex'));
         };
-        const rerender = () => {
-            renderPrompts();
-            renderLore();
-            renderRegex();
+        const rerender = (scope = 'all') => {
+            if (scope === 'all' || scope === 'prompts') renderPrompts();
+            if (scope === 'all' || scope === 'lorebooks') renderLore();
+            if (scope === 'all' || scope === 'regex') renderRegex();
         };
         $('#foldy_enable_prompts').on('input', function () {
             sessionDisabledFeatures.delete('prompts');
@@ -289,15 +289,15 @@ function createSettingsRenderer({
         });
         $('#foldy_clear_prompts').on('click', () => withErrorToast('Clear prompt folder data', async () => {
             await requestClearFoldyData('prompts', '프롬프트');
-            rerender();
+            rerender('prompts');
         }));
         $('#foldy_clear_lorebooks').on('click', () => withErrorToast('Clear lorebook folder data', async () => {
             await requestClearFoldyData('lorebooks', '로어북');
-            rerender();
+            rerender('lorebooks');
         }));
         $('#foldy_clear_regex').on('click', () => withErrorToast('Clear regex folder data', async () => {
             await requestClearFoldyData('regex', '정규식');
-            rerender();
+            rerender('regex');
         }));
         $('#foldy_clear_all').on('click', () => withErrorToast('Clear all folder data', async () => {
             await requestClearFoldyData('all', 'All');

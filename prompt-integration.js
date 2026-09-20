@@ -148,7 +148,7 @@ export function createPromptIntegration({
     function readPromptLayout(manager = promptManager, normalizeOptions = {}) {
         const owner = promptOwnerKey();
         const raw = settings().layouts.prompts[owner];
-        return { owner, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
+        return { owner, hasStoredLayout: raw !== undefined, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
     }
 
     async function persistPromptLayout(owner, layout, manager = promptManager) {
@@ -196,11 +196,12 @@ export function createPromptIntegration({
     async function enhancePromptList(manager) {
         const list = manager.listElement;
         if (!list || !featureEnabled('prompts')) return;
-        const { owner, layout: storedLayout } = readPromptLayout(manager);
+        const { owner, hasStoredLayout, layout: storedLayout } = readPromptLayout(manager);
         const layout = layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
             onSkip: detail => debugLog('외부에서 바뀐 프롬프트 순서를 따라가지 않았습니다.', detail),
         });
-        if (layout !== storedLayout) {
+        // 저장값이 없는 기본 배치는 화면에서만 계산해 초기화 직후 root가 다시 생기지 않게 한다.
+        if (hasStoredLayout && layout !== storedLayout) {
             settings().layouts.prompts[owner] = layout;
             saveSettingsDebounced();
         }

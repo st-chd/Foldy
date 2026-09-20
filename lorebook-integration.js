@@ -226,9 +226,11 @@ export function createLorebookIntegration({
             if (!list) return;
             const allEntries = Object.values(data.entries).filter(entry => entry && typeof entry === 'object');
             const allIds = allEntries.map(entry => String(entry.uid));
-            const layout = normalizeLayout(settings().layouts.lorebooks[owner], allIds);
+            const storedLayout = settings().layouts.lorebooks[owner];
+            const layout = normalizeLayout(storedLayout, allIds);
             currentLoreLayout = layout;
-            await persistLoreLayout(owner, layout);
+            // 초기화된 기본 배치는 화면에서만 계산하고, 저장된 사용자 배치가 있을 때만 정규화 결과를 저장한다.
+            if (storedLayout !== undefined) await persistLoreLayout(owner, layout);
             const query = String($('#world_info_search').val() ?? '').trim();
             const visibleEntries = query ? allEntries.filter(entry => matchesLoreQuery(entry, query)) : allEntries;
             const visibleIds = new Set(visibleEntries.map(entry => String(entry.uid)));
