@@ -220,7 +220,9 @@ export function createLorebookIntegration({
         await loreRenderGate.run(async () => {
             try {
             const data = await loadWorldInfo(name);
-            if (renderGeneration !== loreGeneration || !featureEnabled('lorebooks')) return;
+            const contextChanged = () => renderGeneration !== loreGeneration || !featureEnabled('lorebooks')
+                || currentLorebookOwner().owner !== owner || $('#world_info_sort_order').val() !== loreSortValue;
+            if (contextChanged()) return;
             if (!data?.entries) return;
             const list = document.getElementById('world_popup_entries_list');
             if (!list) return;
@@ -238,18 +240,12 @@ export function createLorebookIntegration({
             const collapsed = ownerCollapsed('lore', owner);
             const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
 
-            // 옵저버가 자기 변경을 다시 감지하는 피드백을 막기 위해 렌더링 동안 연결을 끊는다.
-            loreObserver?.disconnect();
-            destroyLoreSortables(list);
-            closeOpenFolderMenus(list);
-            list.innerHTML = '';
-            list.classList.add('foldy-lore-root');
-            list.classList.toggle('foldy-searching', Boolean(query));
+            // 비동기 항목 생성 중에도 기본 편집기의 목록 교체를 감지하고, 완성된 결과만 한 번에 적용한다.
             const headers = await renderTemplateAsync('worldInfoKeywordHeaders');
-            list.insertAdjacentHTML('beforeend', headers);
+            if (contextChanged()) return;
 
             const rerender = () => queueLoreRender();
-            const loreContextChanged = () => currentLorebookOwner().owner !== owner || currentLoreLayout !== layout;
+            const loreContextChanged = () => contextChanged() || currentLoreLayout !== layout;
             const rerenderIfLoreContextChanged = () => {
                 if (!loreContextChanged()) return false;
                 rerender();
@@ -404,7 +400,15 @@ export function createLorebookIntegration({
 
             const fragment = document.createDocumentFragment();
             const rootElements = await Promise.all(pageNodes.map(renderRootNode));
+            if (contextChanged()) return;
             rootElements.filter(Boolean).forEach(element => fragment.append(element));
+            loreObserver?.disconnect();
+            destroyLoreSortables(list);
+            closeOpenFolderMenus(list);
+            list.innerHTML = '';
+            list.classList.add('foldy-lore-root');
+            list.classList.toggle('foldy-searching', Boolean(query));
+            list.insertAdjacentHTML('beforeend', headers);
             list.append(fragment);
             renderLorePagination(visibleRootNodes.length);
 
@@ -417,7 +421,7 @@ export function createLorebookIntegration({
         } finally {
             const list = document.getElementById('world_popup_entries_list');
             list?.classList.remove('foldy-lore-pending');
-            if (list && loreObserver) loreObserver.observe(list, { childList: true });
+            if (list && loreObserver && featureEnabled('lorebooks')) loreObserver.observe(list, { childList: true });
         }
         }, () => queueLoreRender());
     }
@@ -455,7 +459,11 @@ export function createLorebookIntegration({
                 element.style.setProperty('display', 'none', 'important');
             }
         });
-        if (enabled) return;
+        if (enabled) {
+            const list = document.getElementById('world_popup_entries_list');
+            if (list && loreObserver) loreObserver.observe(list, { childList: true });
+            return;
+        }
 
         document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
         const list = document.getElementById('world_popup_entries_list');
@@ -468,9 +476,6 @@ export function createLorebookIntegration({
         }
         const name = selectedLorebookName();
         if (name) setTimeout(() => reloadEditor(name, true), 0);
-        if (list && loreObserver) {
-            setTimeout(() => loreObserver?.observe(list, { childList: true }), 0);
-        }
     }
 
     async function installLorebookIntegration() {
@@ -529,6 +534,7 @@ export function createLorebookIntegration({
         const listenerOptions = { capture: true, signal: loreListenersAbort.signal };
 
         sort.addEventListener('change', event => {
+            loreGeneration++;
             if (event.target.value !== loreSortValue) {
                 const wasFolderOrder = storedLoreSortValue() === loreSortValue;
                 document.querySelector('#WorldInfo .foldy-toolbar')?.remove();
@@ -576,6 +582,7 @@ export function createLorebookIntegration({
             deleteLorebookEntryInFolderOrder(uid);
         }, listenerOptions);
 
+        loreObserver?.disconnect();
         loreObserver = new MutationObserver(() => {
             if (sortingLore || sort.value !== loreSortValue || !featureEnabled('lorebooks')) return;
             if (loreRenderGate.isRunning()) {
@@ -585,8 +592,9 @@ export function createLorebookIntegration({
             queueLoreRender();
         });
         const list = document.getElementById('world_popup_entries_list');
-        if (list) loreObserver.observe(list, { childList: true });
+        if (list && featureEnabled('lorebooks')) loreObserver.observe(list, { childList: true });
         $('#world_editor_select').off('change.foldy').on('change.foldy', () => {
+            loreGeneration++;
             if (sort.value === loreSortValue) setTimeout(queueLoreRender, 0);
         });
         if (featureEnabled('lorebooks') && storedLoreSortValue() === loreSortValue) {

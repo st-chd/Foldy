@@ -12,6 +12,7 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { registerFoldySlashCommands, unregisterFoldySlashCommand } from './slash-commands.js';
 import { migratePresetRenameSettings, removeFoldyPersistentData } from './lifecycle.js';
 import { cloneJson, createBundleActions } from './bundle-utils.js';
+import { createLayoutBackupActions } from './layout-backup.js';
 import {
     bindAction,
     createLabeledIconButton,
@@ -121,6 +122,8 @@ let slashCommandsRegistered = false;
 let foldySlashCommand = null;
 let extensionRemoving = false;
 let lastKnownLorebookNames = null;
+let promptPresetChanges = 0;
+let appliedPromptPresetName = null;
 const runtimeEventListeners = [];
 const loreWriteQueues = new Map();
 const sessionDisabledFeatures = new Set();
@@ -203,6 +206,14 @@ function registerFoldyRuntimeEvents({
         renderRegex();
     };
     const listeners = [
+        [eventTypes.OAI_PRESET_CHANGED_BEFORE, () => { promptPresetChanges++; }],
+        [eventTypes.OAI_PRESET_CHANGED_AFTER, () => {
+            promptPresetChanges = Math.max(0, promptPresetChanges - 1);
+            if (!promptPresetChanges) {
+                appliedPromptPresetName = promptExportName();
+                invalidatePromptLayout();
+            }
+        }],
         [eventTypes.PRESET_RENAMED, onPresetRenamed],
         [eventTypes.PRESET_CHANGED, onPresetChanged],
         [eventTypes.WORLDINFO_SETTINGS_UPDATED, onWorldInfoUpdated],
@@ -252,6 +263,8 @@ function createSettingsRenderer({
     renderLore,
     renderRegex,
     applyLorebookFeatureState,
+    exportLayouts,
+    importLayouts,
 }) {
     return async function renderSettings() {
         if (document.getElementById('foldy_settings')) return;
@@ -303,6 +316,8 @@ function createSettingsRenderer({
             await requestClearFoldyData('all', 'All');
             rerender();
         }));
+        $('#foldy_export_layouts').on('click', () => withErrorToast('일괄 내보내기', exportLayouts));
+        $('#foldy_import_layouts').on('click', () => withErrorToast('일괄 불러오기', importLayouts));
         sync();
     };
 }
@@ -385,6 +400,11 @@ function promptOwnerKeyForName(name) {
 
 function promptExportName() {
     return promptPresetManager()?.getSelectedPresetName?.() || 'prompts';
+}
+
+function promptContextReady() {
+    return !extensionRemoving && !promptPresetChanges
+        && promptExportName() === (appliedPromptPresetName ?? oai_settings.preset_settings_openai);
 }
 
 function currentPromptPresetSettings(presetName = promptExportName()) {
@@ -596,6 +616,8 @@ const renderSettings = createSettingsRenderer({
     renderLore: () => queueLoreRender(),
     renderRegex: () => enhanceRegexLists(),
     applyLorebookFeatureState: () => applyLorebookFeatureState(),
+    exportLayouts: () => layoutBackupActions.exportLayouts(),
+    importLayouts: () => layoutBackupActions.importLayouts(),
 });
 
 function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, onCollapseChange = null, extraButtons = [] }) {
@@ -696,6 +718,7 @@ const {
     installPromptIntegration,
     teardownPromptIntegration: teardownPromptIntegrationImpl,
     renderPrompts,
+    invalidatePromptLayout,
 } = createPromptIntegration({
     settings,
     saveSettingsDebounced,
@@ -704,6 +727,7 @@ const {
     promptManager,
     promptPresetManager,
     promptOwnerKey,
+    promptContextReady,
     promptOwnerKeyForName,
     promptExportName,
     currentPromptPresetSettings,
@@ -730,6 +754,32 @@ const {
     createFolderElement,
 });
 teardownPromptIntegration = teardownPromptIntegrationImpl;
+
+const layoutBackupActions = createLayoutBackupActions({
+    settings,
+    liveOwners: () => foldyDataCleanup.liveFoldyOwners(),
+    featureEnabled,
+    syncOwners: () => syncLorebookRenameMigration({ rerender: false }),
+    downloadJson,
+    readJsonFile,
+    confirmText,
+    saveSettingsDebounced,
+    refreshLayouts: async plan => {
+        if (plan.entries.some(entry => entry.key === 'prompts')) {
+            invalidatePromptLayout();
+            renderPrompts();
+        }
+        queueLoreRender();
+        for (const typeKey of Object.keys(REGEX_TYPES)) {
+            const owner = regexOwnerKey(typeKey);
+            if (plan.entries.some(entry => entry.key === `regex.${typeKey}` && entry.owner === owner)) {
+                const snapshot = readRegexLayout(typeKey);
+                await persistRegexLayout(typeKey, owner, snapshot.layout);
+            }
+        }
+        enhanceRegexLists();
+    },
+});
 function loreLayoutFromDom(list, sourceLayout, allIds, pageNodeKeys = null) {
     const domNodes = [];
     for (const element of list.children) {
@@ -1129,6 +1179,8 @@ function folderColorCommandContext(target) {
 
 export async function init() {
     extensionRemoving = false;
+    promptPresetChanges = 0;
+    appliedPromptPresetName = oai_settings.preset_settings_openai;
     settings();
     if (!slashCommandsRegistered) {
         foldySlashCommand = registerFoldySlashCommands({

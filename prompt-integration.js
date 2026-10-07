@@ -44,6 +44,8 @@ function createPromptInstaller({
     waitUntilCondition,
     promptManager,
     promptPresetManager,
+    promptOwnerKey,
+    promptContextReady,
     settings,
     featureEnabled,
     saveSettingsDebounced,
@@ -53,6 +55,7 @@ function createPromptInstaller({
 }) {
     let originalRenderItems = null;
     let originalMakeDraggable = null;
+    let renderQueue = Promise.resolve();
 
     async function installPromptIntegration() {
         await waitUntilCondition(() => promptManager && promptPresetManager(), 30000, 100);
@@ -72,20 +75,31 @@ function createPromptInstaller({
         if (manager.__foldyInstalled) return;
         manager.__foldyInstalled = true;
 
-        manager.renderPromptManagerListItems = async function (...args) {
-            await originalRenderItems.apply(this, args);
-            if (!featureEnabled('prompts')) return;
-            try {
-                await enhancePromptList(manager);
-            } catch (error) {
-                debugLog('Prompt folder rendering failed', error);
-                toastr.error('프롬프트 폴더를 표시하지 못해 원래 프롬프트 목록으로 되돌렸습니다.');
+        manager.renderPromptManagerListItems = function (...args) {
+            const render = async () => {
+                if (!manager.__foldyInstalled || !promptContextReady()) return;
+                const owner = promptOwnerKey();
+                const order = manager.getPromptOrderForCharacter(manager.activeCharacter);
                 await originalRenderItems.apply(this, args);
-            }
+                // 템플릿을 기다리는 동안 프리셋이 바뀌면 새 소유자의 저장값을 건드리지 않는다.
+                if (!promptContextReady() || owner !== promptOwnerKey()
+                    || order !== manager.getPromptOrderForCharacter(manager.activeCharacter)) return;
+                if (!featureEnabled('prompts')) return;
+                try {
+                    await enhancePromptList(manager);
+                } catch (error) {
+                    debugLog('Prompt folder rendering failed', error);
+                    toastr.error('프롬프트 폴더를 표시하지 못해 원래 프롬프트 목록으로 되돌렸습니다.');
+                    await originalRenderItems.apply(this, args);
+                }
+            };
+            const pending = renderQueue.then(render);
+            renderQueue = pending.catch(() => {});
+            return pending;
         };
         manager.makeDraggable = function (...args) {
             const result = originalMakeDraggable.apply(this, args);
-            if (featureEnabled('prompts')) {
+            if (featureEnabled('prompts') && promptContextReady()) {
                 try {
                     setupPromptSortables(manager);
                 } catch (error) {
@@ -100,9 +114,10 @@ function createPromptInstaller({
     async function teardownPromptIntegration() {
         const manager = promptManager;
         if (!manager?.__foldyInstalled) return;
+        delete manager.__foldyInstalled;
+        await renderQueue;
         if (originalRenderItems) manager.renderPromptManagerListItems = originalRenderItems;
         if (originalMakeDraggable) manager.makeDraggable = originalMakeDraggable;
-        delete manager.__foldyInstalled;
         document.querySelector('.foldy-toolbar[data-foldy-toolbar="prompt"]')?.remove();
         await manager.render(false);
     }
@@ -118,6 +133,7 @@ export function createPromptIntegration({
     promptManager,
     promptPresetManager,
     promptOwnerKey,
+    promptContextReady = () => true,
     promptOwnerKeyForName,
     promptExportName,
     currentPromptPresetSettings,
@@ -144,6 +160,7 @@ export function createPromptIntegration({
     createFolderElement,
 }) {
     let currentPromptLayout = null;
+    let currentPromptOwner = null;
 
     function readPromptLayout(manager = promptManager, normalizeOptions = {}) {
         const owner = promptOwnerKey();
@@ -152,9 +169,13 @@ export function createPromptIntegration({
     }
 
     async function persistPromptLayout(owner, layout, manager = promptManager) {
+        if (!promptContextReady() || owner !== promptOwnerKey()) {
+            throw new Error('프리셋이 변경되어 이전 폴더 배치를 저장하지 않았습니다.');
+        }
         const freshLayout = reconcilePromptOrder(layout, manager);
         settings().layouts.prompts[owner] = freshLayout;
         currentPromptLayout = freshLayout;
+        currentPromptOwner = owner;
         saveSettingsDebounced();
         await manager.saveServiceSettings();
     }
@@ -167,14 +188,15 @@ export function createPromptIntegration({
         saveSettingsDebounced,
         waitUntilCondition,
         promptOwnerKey,
+        promptContextReady,
         promptOwnerKeyForName,
         promptExportName,
         promptPresetManager,
         currentPromptPresetSettings,
         readPromptLayout,
         persistPromptLayout,
-        getCurrentPromptLayout: () => currentPromptLayout,
-        setCurrentPromptLayout: layout => { currentPromptLayout = layout; },
+        getCurrentPromptLayout: () => currentPromptOwner === promptOwnerKey() ? currentPromptLayout : null,
+        setCurrentPromptLayout: layout => { currentPromptLayout = layout; currentPromptOwner = promptOwnerKey(); },
         requestBundleExportMode,
         downloadJson,
         readJsonFile,
@@ -195,9 +217,15 @@ export function createPromptIntegration({
 
     async function enhancePromptList(manager) {
         const list = manager.listElement;
-        if (!list || !featureEnabled('prompts')) return;
+        if (!list || !featureEnabled('prompts') || !promptContextReady()) return;
         const { owner, hasStoredLayout, layout: storedLayout } = readPromptLayout(manager);
-        const layout = layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
+        // 프리셋을 다시 불러올 때의 평면 순서는 저장된 폴더 배치를 덮어쓰는 외부 드래그가 아니다.
+        const activated = owner !== currentPromptOwner;
+        if (activated && hasStoredLayout) {
+            reconcilePromptOrder(storedLayout, manager);
+            saveSettingsDebounced();
+        }
+        const layout = activated ? storedLayout : layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
             onSkip: detail => debugLog('외부에서 바뀐 프롬프트 순서를 따라가지 않았습니다.', detail),
         });
         // 저장값이 없는 기본 배치는 화면에서만 계산해 초기화 직후 root가 다시 생기지 않게 한다.
@@ -206,6 +234,7 @@ export function createPromptIntegration({
             saveSettingsDebounced();
         }
         currentPromptLayout = layout;
+        currentPromptOwner = owner;
         list.classList.add('foldy-prompt-root');
 
         closeOpenFolderMenus(list);
@@ -218,7 +247,7 @@ export function createPromptIntegration({
         const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
 
         const rerender = () => manager.render(false);
-        const promptContextChanged = activeLayout => activeLayout !== currentPromptLayout || promptOwnerKey() !== owner;
+        const promptContextChanged = activeLayout => !promptContextReady() || activeLayout !== currentPromptLayout || promptOwnerKey() !== owner;
         const rerenderIfPromptContextChanged = activeLayout => {
             if (!promptContextChanged(activeLayout)) return false;
             rerender();
@@ -384,6 +413,8 @@ export function createPromptIntegration({
         waitUntilCondition,
         promptManager,
         promptPresetManager,
+        promptOwnerKey,
+        promptContextReady,
         settings,
         featureEnabled,
         saveSettingsDebounced,
@@ -398,5 +429,6 @@ export function createPromptIntegration({
         renderPrompts: () => promptManager?.render?.(false),
         readPromptLayout,
         persistPromptLayout,
+        invalidatePromptLayout: () => { currentPromptOwner = null; },
     };
 }

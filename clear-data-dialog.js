@@ -508,6 +508,7 @@ export function createFoldyDataCleanup({
     }
 
     return {
+        liveFoldyOwners,
         findUnusedFoldyData,
         unusedFoldyDataItems,
         activeFoldyFolderItems,
