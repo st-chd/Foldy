@@ -51,6 +51,43 @@ test('일괄 복원은 존재하는 대상만 갱신하며 나머지 구조는 �
     assert.deepEqual(targets.prompts.deleted, untouched);
 });
 
+test('구형 로어북 키의 백업은 현재 키로 복원하고 중복 키를 지운다', async () => {
+    const source = layouts();
+    source.lorebooks = { Book: layout() };
+    source.lorebooks.Book.folders[0].name = '백업 폴더';
+    const owners = live();
+    owners.lorebooks = new Set(['["name","Book"]', 'Book', 'name:Book', 'index:0']);
+    let state = { layouts: source };
+    let saved;
+    globalThis.toastr = { success() {}, info() {} };
+    const actions = createLayoutBackupActions({
+        settings: () => state, liveOwners: () => owners, featureEnabled: () => true, syncOwners() {},
+        downloadJson: async bundle => { saved = bundle; return true; },
+        readJsonFile: async () => saved, confirmText: async () => true,
+        saveSettingsDebounced() {}, refreshLayouts: async () => {},
+    });
+    await actions.exportLayouts();
+    state = { layouts: layouts() };
+    state.layouts.lorebooks = { '["name","Book"]': layout(), Book: layout(), 'name:Book': layout() };
+    state.layouts.lorebooks['["name","Book"]'].folders[0].name = '현재 폴더';
+    await actions.importLayouts();
+    assert.equal(state.layouts.lorebooks['["name","Book"]'].folders[0].name, '백업 폴더');
+    assert.deepEqual(Object.keys(state.layouts.lorebooks), ['["name","Book"]']);
+});
+
+test('한 대상의 현재 키와 구형 키가 백업에 함께 있으면 현재 키를 우선한다', () => {
+    const owners = live();
+    owners.lorebooks = new Set(['["name","Book"]', 'Book', 'name:Book']);
+    const source = layouts();
+    source.lorebooks = { '["name","Book"]': layout(), Book: layout() };
+    source.lorebooks.Book.folders[0].name = '구형';
+    source.lorebooks['["name","Book"]'].folders[0].name = '현재';
+    const plan = planLayoutImport(createLayoutBackup(source, owners), owners);
+    const loreEntries = plan.entries.filter(entry => entry.key === 'lorebooks');
+    assert.equal(loreEntries.length, 1);
+    assert.equal(loreEntries[0].layout.folders[0].name, '현재');
+});
+
 test('잘못된 구조와 미래 버전은 일부라도 복원하기 전에 거절한다', () => {
     const bundle = createLayoutBackup(layouts(), live());
     bundle.layouts.regex.scoped.character.folders[0].items = 'wrong';
@@ -102,6 +139,7 @@ function regexRestoreFixture(legacy = false) {
     let activeCharacter = 0;
     const writes = [];
     let refreshes = 0;
+    let chatReloads = 0;
     const managers = Object.fromEntries(Object.keys(presetData).map(api => [api, {
         getAllPresets: () => Object.keys(presetData[api]), getSelectedPresetName: () => selectedNames[api],
         readPresetExtensionField: ({ name }) => presetData[api][name],
@@ -149,15 +187,34 @@ function regexRestoreFixture(legacy = false) {
         document: { querySelectorAll: () => [{ dataset: { presetManagerFor: 'openai,novel' } }] },
         getCurrentPresetAPI: () => 'openai', getPresetManager: api => managers[api],
         promptContextReady: () => true, waitUntilCondition: async condition => { assert.equal(condition(), true); },
+        getCurrentChatId: () => 'chat', reloadCurrentChat: async () => { chatReloads++; },
     };
     const actions = runInNewContext(`
         ${section('function regexItemIds(', 'const {\n    exportRegexBundle,')}
         ${section('const layoutBackupActions =', 'function loreLayoutFromDom(')}
         layoutBackupActions;
     `, context);
-    return { actions, characters, presetData, writes, global: () => globalScripts, refreshes: () => refreshes,
+    return { actions, bundle, characters, presetData, writes, global: () => globalScripts,
+        refreshes: () => refreshes, chatReloads: () => chatReloads,
         activateB: () => { activeCharacter = 1; selectedNames.openai = 'B:preset'; }, context };
 }
+
+test('현재 채팅의 정규식 순서가 그대로면 일괄 복원에서 채팅을 다시 렌더링하지 않는다', async () => {
+    globalThis.toastr = { success() {}, info() {} };
+    const f = regexRestoreFixture();
+    delete f.bundle.layouts.regex.global.global;
+    await f.actions.importLayouts();
+    assert.equal(f.chatReloads(), 0);
+});
+
+test('현재 캐릭터와 프리셋의 정규식 순서가 바뀌면 채팅을 한 번만 갱신한다', async () => {
+    globalThis.toastr = { success() {}, info() {} };
+    const f = regexRestoreFixture();
+    delete f.bundle.layouts.regex.global.global;
+    f.activateB();
+    await f.actions.importLayouts();
+    assert.equal(f.chatReloads(), 1);
+});
 
 for (const legacy of [false, true]) {
     test(`일괄 복원은 비활성 캐릭터와 다른 API 프리셋의 실행 순서도 복원한다 (${legacy ? '기존 키' : '현재 키'})`, async () => {
@@ -183,5 +240,6 @@ for (const legacy of [false, true]) {
         assert.deepEqual(Array.from(f.context.getScriptsByType('scoped'), script => script.id), ['2', '1', 'new']);
         assert.deepEqual(Array.from(f.context.getScriptsByType('preset'), script => script.id), ['2', '1', 'new']);
         assert.equal(f.refreshes(), 1);
+        assert.equal(f.chatReloads(), 1);
     });
 }

@@ -46,7 +46,8 @@ function runtimeFixture() {
         ${section('function promptContextReady()', 'function currentPromptPresetSettings(')}
         ({ register: registerFoldyRuntimeEvents, ready: promptContextReady, unregister: unregisterFoldyRuntimeEvents });
     `, {
-        oai_settings: settings, promptExportName: () => selected, promptPresetManager: () => manager,
+        oai_settings: settings, settingsToUpdate: { temperature: ['', 'temp_openai', false, false] },
+        promptExportName: () => selected, promptPresetManager: () => manager,
         invalidatePromptLayout: () => { invalidations++; }, debugLog() {},
         migratePresetRenameSettings: () => false, foldyOwnerKey() {}, legacyFoldyOwnerKey() {},
     });
@@ -54,18 +55,20 @@ function runtimeFixture() {
         eventSource: events, eventTypes, settings: () => ({}), revalidateSettings() {}, saveSettingsDebounced() {},
         renderPrompts() {}, renderRegex() {}, syncLorebookRenameMigration() {},
     });
-    const begin = async (name, id) => {
+    const begin = async (name, id, suppliedPreset) => {
         selected = name;
         settings.preset_settings_openai = name;
-        const preset = { prompts: [{ identifier: id }],
+        const preset = suppliedPreset ?? { prompts: [{ identifier: id }],
             prompt_order: [{ character_id: 100000, order: [{ identifier: id, enabled: true }] }] };
         presets.set(name, structuredClone(preset));
         await events.emit(eventTypes.OAI_PRESET_CHANGED_BEFORE, { preset, presetName: name });
         return preset;
     };
     const complete = async preset => {
-        settings.prompts = preset.prompts;
-        settings.prompt_order = preset.prompt_order;
+        for (const key of ['prompts', 'prompt_order', 'temp_openai']) {
+            const sourceKey = key === 'temp_openai' ? 'temperature' : key;
+            if (preset[sourceKey] !== undefined) settings[key] = preset[sourceKey];
+        }
         await events.emit(eventTypes.OAI_PRESET_CHANGED_AFTER);
     };
     return { register, begin, complete, ready: runtime.ready, events, eventTypes, settings,
@@ -118,8 +121,8 @@ test('A의 지연된 저장은 B의 기본 프롬프트 12개 순서와 A 폴더
     assert.equal(f.manager.saves, 0);
 });
 
-test('프리셋 전환 중에는 폴더 배치 저장과 기본 목록 렌더를 실행하지 않는다', async () => {
-    const f = fixture({ promptContextReady: () => false });
+test('프리셋 전환 중에는 폴더 배치 저장과 폴더 목록 렌더를 실행하지 않는다', async () => {
+    const f = fixture({ promptContextReady: () => false, featureEnabled: () => true });
     let rendered = 0;
     f.manager.renderPromptManagerListItems = async () => { rendered++; };
     await f.integration.installPromptIntegration();
@@ -127,6 +130,15 @@ test('프리셋 전환 중에는 폴더 배치 저장과 기본 목록 렌더를
     await assert.rejects(f.integration.persistPromptLayout('openai:A', normalizeLayout(null, f.ids)), /프리셋/);
     assert.equal(rendered, 0);
     assert.equal(f.manager.saves, 0);
+});
+
+test('프롬프트 폴더를 끄면 전환 준비 상태와 무관하게 기본 목록을 렌더한다', async () => {
+    const f = fixture({ promptContextReady: () => false });
+    let rendered = 0;
+    f.manager.renderPromptManagerListItems = async () => { rendered++; };
+    await f.integration.installPromptIntegration();
+    await f.manager.renderPromptManagerListItems();
+    assert.equal(rendered, 1);
 });
 
 test('템플릿 대기 중 바뀐 프리셋은 새 소유자의 폴더 저장값을 덮어쓰지 않는다', async () => {
@@ -280,4 +292,31 @@ test('요청과 연결되지 않은 적용 데이터는 완료 횟수가 0이어
     const a = await runtime.begin('A', 'a-only');
     await runtime.complete(structuredClone(a));
     assert.equal(runtime.ready(), false);
+});
+
+test('프롬프트 배열을 하나 또는 모두 생략한 프리셋도 적용된 요청으로 판정한다', async () => {
+    const runtime = runtimeFixture();
+    runtime.register();
+    await runtime.complete(await runtime.begin('A', 'unused', { prompts: [{ identifier: 'a' }] }));
+    assert.equal(runtime.ready(), true);
+    await runtime.complete(await runtime.begin('B', 'unused', { prompt_order: [{ character_id: 100000, order: [] }] }));
+    assert.equal(runtime.ready(), true);
+    await runtime.complete(await runtime.begin('C', 'unused', { temperature: 0.7 }));
+    assert.equal(runtime.ready(), true);
+    await runtime.recover();
+    assert.equal(runtime.reapplications(), 0);
+});
+
+test('배열이 없는 요청 둘이 겹치면 소유자를 추측하지 않고 최신 프리셋을 재적용한다', async () => {
+    const runtime = runtimeFixture();
+    runtime.register();
+    const a = await runtime.begin('A', 'unused', { temperature: 0.7 });
+    const b = await runtime.begin('B', 'unused', { temperature: 0.7 });
+    await runtime.complete(b);
+    assert.equal(runtime.ready(), false);
+    await runtime.complete(a);
+    assert.equal(runtime.ready(), false);
+    await runtime.recover();
+    assert.equal(runtime.ready(), true);
+    assert.equal(runtime.reapplications(), 1);
 });

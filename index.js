@@ -1,6 +1,6 @@
 import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
 import { extension_settings, renderExtensionTemplateAsync, writeExtensionField } from '../../../extensions.js';
-import { getChatCompletionPreset, oai_settings, promptManager } from '../../../openai.js';
+import { getChatCompletionPreset, oai_settings, promptManager, settingsToUpdate } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
 import { getPresetManager } from '../../../preset-manager.js';
 import { renderTemplateAsync } from '../../../templates.js';
@@ -226,10 +226,17 @@ function registerFoldyRuntimeEvents({
         }],
         [eventTypes.OAI_PRESET_CHANGED_AFTER, () => {
             promptPresetChanges = Math.max(0, promptPresetChanges - 1);
-            // AFTER에는 요청 이름이 없으므로 본체가 그대로 대입한 배열로 소유자를 확인한다.
-            const applied = [...pendingPromptPresets].find(([, { preset }]) =>
-                Array.isArray(preset.prompts) && Array.isArray(preset.prompt_order)
-                && preset.prompts === oai_settings.prompts && preset.prompt_order === oai_settings.prompt_order);
+            // 본체는 프리셋에 없는 필드를 기존 값으로 유지한다.
+            const candidates = [...pendingPromptPresets].filter(([, { preset, presetName }]) => {
+                const arrays = ['prompts', 'prompt_order'].filter(key => preset[key] !== undefined);
+                if (arrays.length) return arrays.every(key => preset[key] === oai_settings[key]);
+                const scalars = Object.entries(settingsToUpdate).filter(([key, [, , , connection]]) =>
+                    key !== 'extensions' && !connection && preset[key] !== undefined
+                    && (preset[key] === null || typeof preset[key] !== 'object'));
+                if (scalars.length) return scalars.every(([key, [, setting]]) => Object.is(preset[key], oai_settings[setting]));
+                return pendingPromptPresets.size === 1 && promptExportName() === presetName;
+            });
+            const applied = candidates.length === 1 ? candidates[0] : null;
             appliedPromptPresetName = applied?.[1].presetName ?? null;
             appliedPromptPresetGeneration = applied?.[0] ?? -1;
             if (applied) pendingPromptPresets.delete(applied[0]);
@@ -797,10 +804,17 @@ const layoutBackupActions = createLayoutBackupActions({
             renderPrompts();
         }
         queueLoreRender();
+        const regexEntries = plan.entries.filter(entry => entry.key.startsWith('regex.'));
+        const activeOrders = regexEntries.length && getCurrentChatId()
+            ? Object.keys(REGEX_TYPES).map(type => regexItemIds(type)) : null;
         for (const entry of plan.entries) {
             if (entry.key.startsWith('regex.')) await restoreRegexLayoutOrder(entry);
         }
         enhanceRegexLists();
+        if (activeOrders && Object.keys(REGEX_TYPES).some((type, index) =>
+            JSON.stringify(activeOrders[index]) !== JSON.stringify(regexItemIds(type)))) {
+            await reloadCurrentChat();
+        }
     },
 });
 function loreLayoutFromDom(list, sourceLayout, allIds, pageNodeKeys = null) {

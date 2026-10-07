@@ -77,7 +77,12 @@ function createPromptInstaller({
 
         manager.renderPromptManagerListItems = function (...args) {
             const render = async () => {
-                if (!manager.__foldyInstalled || !promptContextReady()) return;
+                if (!manager.__foldyInstalled) return;
+                if (!promptContextReady() && !featureEnabled('prompts')) {
+                    await originalRenderItems.apply(this, args);
+                    return;
+                }
+                if (!promptContextReady()) return;
                 const owner = promptOwnerKey();
                 const order = manager.getPromptOrderForCharacter(manager.activeCharacter);
                 await originalRenderItems.apply(this, args);

@@ -23,6 +23,25 @@ function structureOnly(layout) {
     return normalizeLayout(layout, flattenLayout(layout));
 }
 
+function ownerAliases(key, owners) {
+    const aliases = new Map();
+    let loreIndex = 0;
+    for (const canonical of owners) {
+        let parts;
+        try { parts = JSON.parse(canonical); } catch { continue; }
+        if (!Array.isArray(parts) || !parts.every(part => typeof part === 'string')) continue;
+        const names = [canonical, parts.join(':')];
+        if (key === 'lorebooks' && parts[0] === 'name' && parts.length === 2) {
+            names.push(parts[1], `index:${loreIndex++}`);
+        }
+        for (const name of names) {
+            if (aliases.has(name) && aliases.get(name) !== canonical) aliases.set(name, null);
+            else if (!aliases.has(name)) aliases.set(name, canonical);
+        }
+    }
+    return aliases;
+}
+
 export function createLayoutBackup(layouts, live, enabled = () => true) {
     const result = emptyLayouts();
     for (const [key, bucket, owners, active] of layoutBuckets(layouts, live, enabled)) {
@@ -52,22 +71,33 @@ export function planLayoutImport(bundle, live, enabled = () => true) {
         || !isObjectRecord(bundle.layouts) || !isObjectRecord(bundle.layouts.regex)) {
         throw new Error('올바른 Foldy 일괄 폴더 구조 파일이 아닙니다.');
     }
-    const entries = [];
+    const entries = new Map();
     let skipped = 0;
     for (const [key, bucket, owners, active] of layoutBuckets(bundle.layouts, live, enabled)) {
         if (!isObjectRecord(bucket)) throw new Error('일괄 폴더 구조의 목록 형식이 올바르지 않습니다.');
+        const aliases = ownerAliases(key, owners);
         for (const [owner, layout] of Object.entries(bucket)) {
             if (!validateLayout(layout)) throw new Error('일괄 폴더 구조에 올바르지 않은 폴더가 있습니다.');
             if (!active || !owners.has(owner)) { skipped++; continue; }
-            entries.push({ key, owner, layout: structureOnly(layout) });
+            if (aliases.has(owner) && aliases.get(owner) === null) { skipped++; continue; }
+            const canonical = aliases.get(owner) ?? owner;
+            const id = `${key}\0${canonical}`;
+            const previous = entries.get(id);
+            if (previous && owner !== canonical) continue;
+            entries.set(id, { key, owner: canonical, layout: structureOnly(layout),
+                obsoleteOwners: [...aliases].filter(([alias, target]) => target === canonical && alias !== canonical)
+                    .map(([alias]) => alias) });
         }
     }
-    return { entries, skipped, folders: entries.reduce((count, entry) => count + entry.layout.folders.length, 0) };
+    const planned = [...entries.values()];
+    return { entries: planned, skipped, folders: planned.reduce((count, entry) => count + entry.layout.folders.length, 0) };
 }
 
 export function applyLayoutImport(layouts, plan) {
-    for (const { key, owner, layout } of plan.entries) {
-        Object.defineProperty(bucketFor(layouts, key), owner, {
+    for (const { key, owner, layout, obsoleteOwners = [] } of plan.entries) {
+        const bucket = bucketFor(layouts, key);
+        for (const alias of obsoleteOwners) delete bucket[alias];
+        Object.defineProperty(bucket, owner, {
             value: layout, enumerable: true, configurable: true, writable: true,
         });
     }
