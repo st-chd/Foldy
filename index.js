@@ -1,5 +1,5 @@
 import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
-import { extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
+import { extension_settings, renderExtensionTemplateAsync, writeExtensionField } from '../../../extensions.js';
 import { getChatCompletionPreset, oai_settings, promptManager } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
 import { getPresetManager } from '../../../preset-manager.js';
@@ -124,6 +124,10 @@ let extensionRemoving = false;
 let lastKnownLorebookNames = null;
 let promptPresetChanges = 0;
 let appliedPromptPresetName = null;
+let promptPresetGeneration = 0;
+let appliedPromptPresetGeneration = 0;
+let promptRecoveryGeneration = -1;
+const pendingPromptPresets = new Map();
 const runtimeEventListeners = [];
 const loreWriteQueues = new Map();
 const sessionDisabledFeatures = new Set();
@@ -178,6 +182,7 @@ function registerFoldyRuntimeEvents({
     runtimeEventsRegistered = true;
 
     const onPresetRenamed = ({ apiId, oldName, newName }) => {
+        if (apiId === 'openai' && appliedPromptPresetName === oldName) appliedPromptPresetName = newName;
         revalidateSettings();
         const changed = migratePresetRenameSettings(settings(), {
             apiId,
@@ -194,6 +199,15 @@ function registerFoldyRuntimeEvents({
     };
     const onPresetChanged = () => {
         revalidateSettings();
+        if (!extensionRemoving && !promptPresetChanges && !promptContextReady()
+            && promptRecoveryGeneration !== promptPresetGeneration) {
+            const manager = promptPresetManager();
+            if (manager) {
+                // 지연된 이전 요청이 마지막에 적용되면 현재 선택 대상을 다시 적용한다.
+                promptRecoveryGeneration = promptPresetGeneration + 1;
+                manager.selectPreset(manager.getSelectedPreset()).catch(error => debugLog('프롬프트 프리셋 재적용 실패', error));
+            }
+        }
         renderPrompts();
         renderRegex();
     };
@@ -206,13 +220,21 @@ function registerFoldyRuntimeEvents({
         renderRegex();
     };
     const listeners = [
-        [eventTypes.OAI_PRESET_CHANGED_BEFORE, () => { promptPresetChanges++; }],
+        [eventTypes.OAI_PRESET_CHANGED_BEFORE, ({ preset, presetName }) => {
+            promptPresetChanges++;
+            pendingPromptPresets.set(++promptPresetGeneration, { preset, presetName });
+        }],
         [eventTypes.OAI_PRESET_CHANGED_AFTER, () => {
             promptPresetChanges = Math.max(0, promptPresetChanges - 1);
-            if (!promptPresetChanges) {
-                appliedPromptPresetName = promptExportName();
-                invalidatePromptLayout();
-            }
+            // AFTER에는 요청 이름이 없으므로 본체가 그대로 대입한 배열로 소유자를 확인한다.
+            const applied = [...pendingPromptPresets].find(([, { preset }]) =>
+                Array.isArray(preset.prompts) && Array.isArray(preset.prompt_order)
+                && preset.prompts === oai_settings.prompts && preset.prompt_order === oai_settings.prompt_order);
+            appliedPromptPresetName = applied?.[1].presetName ?? null;
+            appliedPromptPresetGeneration = applied?.[0] ?? -1;
+            if (applied) pendingPromptPresets.delete(applied[0]);
+            if (!promptPresetChanges) pendingPromptPresets.clear();
+            invalidatePromptLayout();
         }],
         [eventTypes.PRESET_RENAMED, onPresetRenamed],
         [eventTypes.PRESET_CHANGED, onPresetChanged],
@@ -220,7 +242,11 @@ function registerFoldyRuntimeEvents({
         [eventTypes.CHAT_CHANGED, onChatChanged],
     ];
     listeners.forEach(([event, listener]) => {
-        eventSource.on(event, listener);
+        if (event === eventTypes.OAI_PRESET_CHANGED_BEFORE || event === eventTypes.OAI_PRESET_CHANGED_AFTER) {
+            eventSource.makeFirst(event, listener);
+        } else {
+            eventSource.on(event, listener);
+        }
         runtimeEventListeners.push({ eventSource, event, listener });
     });
 }
@@ -404,7 +430,8 @@ function promptExportName() {
 
 function promptContextReady() {
     return !extensionRemoving && !promptPresetChanges
-        && promptExportName() === (appliedPromptPresetName ?? oai_settings.preset_settings_openai);
+        && appliedPromptPresetGeneration === promptPresetGeneration
+        && promptExportName() === appliedPromptPresetName;
 }
 
 function currentPromptPresetSettings(presetName = promptExportName()) {
@@ -770,12 +797,8 @@ const layoutBackupActions = createLayoutBackupActions({
             renderPrompts();
         }
         queueLoreRender();
-        for (const typeKey of Object.keys(REGEX_TYPES)) {
-            const owner = regexOwnerKey(typeKey);
-            if (plan.entries.some(entry => entry.key === `regex.${typeKey}` && entry.owner === owner)) {
-                const snapshot = readRegexLayout(typeKey);
-                await persistRegexLayout(typeKey, owner, snapshot.layout);
-            }
+        for (const entry of plan.entries) {
+            if (entry.key.startsWith('regex.')) await restoreRegexLayoutOrder(entry);
         }
         enhanceRegexLists();
     },
@@ -1056,6 +1079,40 @@ function regexItemIds(typeKey) {
     return getScriptsByType(REGEX_TYPES[typeKey].scriptType).map(script => String(script.id)).filter(Boolean);
 }
 
+async function restoreRegexLayoutOrder({ key, owner, layout }) {
+    const typeKey = key.slice(6);
+    const matches = (...segments) => owner === foldyOwnerKey(typeKey, ...segments)
+        || owner === legacyFoldyOwnerKey(typeKey, ...segments);
+    if (typeKey === 'global') {
+        const type = REGEX_TYPES.global.scriptType;
+        await saveRegexScriptsSafely(orderItemsByLayout(layout, getScriptsByType(type)), type, owner);
+        return;
+    }
+    if (typeKey === 'scoped') {
+        const characterId = characters.findIndex(character => character?.avatar && matches(character.avatar));
+        if (characterId < 0) return;
+        const scripts = characters[characterId]?.data?.extensions?.regex_scripts;
+        if (Array.isArray(scripts)) await writeExtensionField(characterId, 'regex_scripts', orderItemsByLayout(layout, scripts));
+        return;
+    }
+    const apiIds = new Set([...document.querySelectorAll('select[data-preset-manager-for]')]
+        .flatMap(select => String(select.dataset.presetManagerFor || '').split(',').map(value => value.trim()).filter(Boolean)));
+    apiIds.add(getCurrentPresetAPI?.() || 'openai');
+    for (const apiId of apiIds) {
+        const manager = getPresetManager(apiId);
+        const name = manager?.getAllPresets?.().find(name => matches(apiId, name));
+        if (!name) continue;
+        if (apiId === 'openai' && name === manager.getSelectedPresetName()) {
+            await waitUntilCondition(promptContextReady, 30000, 100);
+        }
+        const scripts = manager.readPresetExtensionField({ name, path: 'regex_scripts' });
+        if (Array.isArray(scripts)) {
+            await manager.writePresetExtensionField({ name, path: 'regex_scripts', value: orderItemsByLayout(layout, scripts) });
+        }
+        return;
+    }
+}
+
 function readRegexLayout(typeKey) {
     const owner = regexOwnerKey(typeKey);
     const raw = settings().layouts.regex[typeKey][owner];
@@ -1181,6 +1238,10 @@ export async function init() {
     extensionRemoving = false;
     promptPresetChanges = 0;
     appliedPromptPresetName = oai_settings.preset_settings_openai;
+    promptPresetGeneration = 0;
+    appliedPromptPresetGeneration = 0;
+    promptRecoveryGeneration = -1;
+    pendingPromptPresets.clear();
     settings();
     if (!slashCommandsRegistered) {
         foldySlashCommand = registerFoldySlashCommands({

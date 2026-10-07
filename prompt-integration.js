@@ -163,6 +163,7 @@ export function createPromptIntegration({
     let currentPromptOwner = null;
 
     function readPromptLayout(manager = promptManager, normalizeOptions = {}) {
+        if (!promptContextReady()) throw new Error('프리셋이 변경되어 폴더 배치를 읽지 않았습니다.');
         const owner = promptOwnerKey();
         const raw = settings().layouts.prompts[owner];
         return { owner, hasStoredLayout: raw !== undefined, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
