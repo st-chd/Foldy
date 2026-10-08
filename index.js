@@ -1,4 +1,4 @@
-import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
+import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid, unshallowCharacter } from '../../../../script.js';
 import { extension_settings, renderExtensionTemplateAsync, writeExtensionFieldBulk } from '../../../extensions.js';
 import { getChatCompletionPreset, oai_settings, promptManager, settingsToUpdate } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
@@ -1106,9 +1106,12 @@ async function restoreRegexLayoutOrder({ key, owner, layout }) {
     if (typeKey === 'scoped') {
         const characterId = characters.findIndex(character => character?.avatar && matches(character.avatar));
         if (characterId < 0) throw new Error('복원할 캐릭터를 찾을 수 없습니다.');
-        const scripts = characters[characterId]?.data?.extensions?.regex_scripts;
-        if (!Array.isArray(scripts)) throw new Error('복원할 캐릭터 정규식을 찾을 수 없습니다.');
         const avatar = characters[characterId].avatar;
+        await unshallowCharacter(characterId);
+        // 상세 로딩 중 캐릭터 목록이 교체될 수 있으므로 아바타로 다시 찾는다.
+        const character = characters.find(character => character?.avatar === avatar);
+        const scripts = character?.data?.extensions?.regex_scripts;
+        if (character?.shallow || !Array.isArray(scripts)) throw new Error('복원할 캐릭터 정규식을 찾을 수 없습니다.');
         const result = await writeExtensionFieldBulk([avatar], 'regex_scripts', orderItemsByLayout(layout, scripts));
         if (!result.updated.includes(avatar)) throw new Error(`캐릭터 정규식을 저장하지 못했습니다: ${avatar}`);
         return;
@@ -1125,7 +1128,33 @@ async function restoreRegexLayoutOrder({ key, owner, layout }) {
         }
         const scripts = manager.readPresetExtensionField({ name, path: 'regex_scripts' });
         if (Array.isArray(scripts)) {
-            await manager.writePresetExtensionField({ name, path: 'regex_scripts', value: orderItemsByLayout(layout, scripts) });
+            const value = orderItemsByLayout(layout, scripts);
+            const currentSettings = name === manager.getSelectedPresetName() ? manager.getPresetList().settings : null;
+            const targets = [currentSettings, manager.getCompletionPresetByName(name)].filter(Boolean);
+            // 본체 API는 파일 저장 전에 두 메모리 상태와 현재 설정을 먼저 바꾼다.
+            const rollbacks = targets.map(target => {
+                const extensions = target.extensions;
+                const hadExtensions = Object.hasOwn(target, 'extensions');
+                const hadScripts = Object.hasOwn(extensions || {}, 'regex_scripts');
+                const previousScripts = extensions?.regex_scripts;
+                return () => {
+                    if (extensions && typeof extensions === 'object' && !Array.isArray(extensions)) {
+                        if (extensions.regex_scripts !== value) return;
+                        if (hadScripts) extensions.regex_scripts = previousScripts;
+                        else delete extensions.regex_scripts;
+                    } else if (target.extensions?.regex_scripts === value) {
+                        if (hadExtensions) target.extensions = extensions;
+                        else delete target.extensions;
+                    }
+                };
+            });
+            try {
+                await manager.writePresetExtensionField({ name, path: 'regex_scripts', value });
+            } catch (error) {
+                for (const rollback of rollbacks) rollback();
+                if (currentSettings) saveSettingsDebounced();
+                throw error;
+            }
         }
         return;
     }
