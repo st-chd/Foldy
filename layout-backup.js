@@ -105,7 +105,8 @@ export function applyLayoutImport(layouts, plan) {
 
 export function createLayoutBackupActions({
     settings, liveOwners, featureEnabled, syncOwners, downloadJson, readJsonFile,
-    confirmText, saveSettingsDebounced, refreshLayouts,
+    confirmText, saveSettingsDebounced, refreshLayouts, captureRestoreState = () => undefined,
+    restoreLayoutOrder = async () => {}, debugLog = console.error,
 }) {
     return {
         async exportLayouts() {
@@ -130,10 +131,33 @@ export function createLayoutBackupActions({
                 + `존재하지 않거나 기능이 꺼진 대상 ${preview.skipped}개는 건너뜁니다.`)) return;
             syncOwners();
             const plan = planLayoutImport(bundle, liveOwners(), featureEnabled);
-            applyLayoutImport(settings().layouts, plan);
-            saveSettingsDebounced();
-            await refreshLayouts(plan);
-            toastr.success(`${plan.entries.length}개 대상의 폴더 구조를 불러왔습니다.`);
+            const restoreState = captureRestoreState(plan);
+            const restored = [];
+            const failed = [];
+            for (const entry of plan.entries) {
+                try {
+                    // 저장에 성공한 대상만 폴더 배치에 반영해 실패한 대상의 기존 구조를 유지한다.
+                    await restoreLayoutOrder(entry);
+                    applyLayoutImport(settings().layouts, { entries: [entry] });
+                    restored.push(entry);
+                } catch (error) {
+                    debugLog('일괄 폴더 구조 복원 실패', { key: entry.key, owner: entry.owner, error });
+                    failed.push(entry);
+                }
+            }
+            if (restored.length) {
+                saveSettingsDebounced();
+                await refreshLayouts({ ...plan, entries: restored }, restoreState);
+            }
+            if (failed.length) {
+                const labels = { prompts: '프롬프트', lorebooks: '로어북', 'regex.global': '글로벌 정규식',
+                    'regex.scoped': '캐릭터 정규식', 'regex.preset': '프리셋 정규식' };
+                const targets = failed.map(entry => `${labels[entry.key]}: ${entry.owner}`).join(', ');
+                toastr.warning(`${restored.length}개 대상 복원 완료, ${failed.length}개 대상 실패. 실패 대상: ${targets}`,
+                    '일괄 폴더 구조 부분 복원', { escapeHtml: true });
+            } else {
+                toastr.success(`${restored.length}개 대상의 폴더 구조를 불러왔습니다.`);
+            }
         },
     };
 }

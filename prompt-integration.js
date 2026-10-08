@@ -50,6 +50,7 @@ function createPromptInstaller({
     featureEnabled,
     saveSettingsDebounced,
     debugLog,
+    restorePromptLayoutOrder,
     enhancePromptList,
     setupPromptSortables,
 }) {
@@ -83,6 +84,7 @@ function createPromptInstaller({
                     return;
                 }
                 if (!promptContextReady()) return;
+                restorePromptLayoutOrder();
                 const owner = promptOwnerKey();
                 const order = manager.getPromptOrderForCharacter(manager.activeCharacter);
                 await originalRenderItems.apply(this, args);
@@ -113,6 +115,7 @@ function createPromptInstaller({
             }
             return result;
         };
+        restorePromptLayoutOrder();
         manager.render(false);
     }
 
@@ -174,6 +177,20 @@ export function createPromptIntegration({
         return { owner, hasStoredLayout: raw !== undefined, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
     }
 
+    function restorePromptLayoutOrder(manager = promptManager, force = false) {
+        if (!manager?.activeCharacter || !featureEnabled('prompts') || !promptContextReady()) return;
+        if (!force && currentPromptOwner === promptOwnerKey()) return;
+        // 본체의 완료 리스너보다 먼저 실행되므로 기본 참조를 정리한 뒤 순서를 복원한다.
+        manager.sanitizeServiceSettings?.();
+        const { owner, hasStoredLayout, layout } = readPromptLayout(manager);
+        if (hasStoredLayout) {
+            reconcilePromptOrder(layout, manager);
+            saveSettingsDebounced();
+        }
+        currentPromptLayout = layout;
+        currentPromptOwner = owner;
+    }
+
     async function persistPromptLayout(owner, layout, manager = promptManager) {
         if (!promptContextReady() || owner !== promptOwnerKey()) {
             throw new Error('프리셋이 변경되어 이전 폴더 배치를 저장하지 않았습니다.');
@@ -227,10 +244,6 @@ export function createPromptIntegration({
         const { owner, hasStoredLayout, layout: storedLayout } = readPromptLayout(manager);
         // 프리셋을 다시 불러올 때의 평면 순서는 저장된 폴더 배치를 덮어쓰는 외부 드래그가 아니다.
         const activated = owner !== currentPromptOwner;
-        if (activated && hasStoredLayout) {
-            reconcilePromptOrder(storedLayout, manager);
-            saveSettingsDebounced();
-        }
         const layout = activated ? storedLayout : layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
             onSkip: detail => debugLog('외부에서 바뀐 프롬프트 순서를 따라가지 않았습니다.', detail),
         });
@@ -425,6 +438,7 @@ export function createPromptIntegration({
         featureEnabled,
         saveSettingsDebounced,
         debugLog,
+        restorePromptLayoutOrder,
         enhancePromptList,
         setupPromptSortables,
     });
@@ -435,6 +449,7 @@ export function createPromptIntegration({
         renderPrompts: () => promptManager?.render?.(false),
         readPromptLayout,
         persistPromptLayout,
+        restorePromptLayoutOrder: () => restorePromptLayoutOrder(promptManager, true),
         invalidatePromptLayout: () => { currentPromptOwner = null; },
     };
 }

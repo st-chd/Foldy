@@ -1,5 +1,5 @@
 import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
-import { extension_settings, renderExtensionTemplateAsync, writeExtensionField } from '../../../extensions.js';
+import { extension_settings, renderExtensionTemplateAsync, writeExtensionFieldBulk } from '../../../extensions.js';
 import { getChatCompletionPreset, oai_settings, promptManager, settingsToUpdate } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
 import { getPresetManager } from '../../../preset-manager.js';
@@ -242,6 +242,7 @@ function registerFoldyRuntimeEvents({
             if (applied) pendingPromptPresets.delete(applied[0]);
             if (!promptPresetChanges) pendingPromptPresets.clear();
             invalidatePromptLayout();
+            restorePromptLayoutOrder();
         }],
         [eventTypes.PRESET_RENAMED, onPresetRenamed],
         [eventTypes.PRESET_CHANGED, onPresetChanged],
@@ -753,6 +754,7 @@ const {
     teardownPromptIntegration: teardownPromptIntegrationImpl,
     renderPrompts,
     invalidatePromptLayout,
+    restorePromptLayoutOrder,
 } = createPromptIntegration({
     settings,
     saveSettingsDebounced,
@@ -798,18 +800,17 @@ const layoutBackupActions = createLayoutBackupActions({
     readJsonFile,
     confirmText,
     saveSettingsDebounced,
-    refreshLayouts: async plan => {
+    restoreLayoutOrder: entry => entry.key.startsWith('regex.') ? restoreRegexLayoutOrder(entry) : undefined,
+    debugLog,
+    captureRestoreState: plan => plan.entries.some(entry => entry.key.startsWith('regex.')) && getCurrentChatId()
+        ? Object.keys(REGEX_TYPES).map(type => regexItemIds(type)) : null,
+    refreshLayouts: async (plan, activeOrders) => {
         if (plan.entries.some(entry => entry.key === 'prompts')) {
             invalidatePromptLayout();
+            restorePromptLayoutOrder();
             renderPrompts();
         }
         queueLoreRender();
-        const regexEntries = plan.entries.filter(entry => entry.key.startsWith('regex.'));
-        const activeOrders = regexEntries.length && getCurrentChatId()
-            ? Object.keys(REGEX_TYPES).map(type => regexItemIds(type)) : null;
-        for (const entry of plan.entries) {
-            if (entry.key.startsWith('regex.')) await restoreRegexLayoutOrder(entry);
-        }
         enhanceRegexLists();
         if (activeOrders && Object.keys(REGEX_TYPES).some((type, index) =>
             JSON.stringify(activeOrders[index]) !== JSON.stringify(regexItemIds(type)))) {
@@ -1104,9 +1105,12 @@ async function restoreRegexLayoutOrder({ key, owner, layout }) {
     }
     if (typeKey === 'scoped') {
         const characterId = characters.findIndex(character => character?.avatar && matches(character.avatar));
-        if (characterId < 0) return;
+        if (characterId < 0) throw new Error('복원할 캐릭터를 찾을 수 없습니다.');
         const scripts = characters[characterId]?.data?.extensions?.regex_scripts;
-        if (Array.isArray(scripts)) await writeExtensionField(characterId, 'regex_scripts', orderItemsByLayout(layout, scripts));
+        if (!Array.isArray(scripts)) throw new Error('복원할 캐릭터 정규식을 찾을 수 없습니다.');
+        const avatar = characters[characterId].avatar;
+        const result = await writeExtensionFieldBulk([avatar], 'regex_scripts', orderItemsByLayout(layout, scripts));
+        if (!result.updated.includes(avatar)) throw new Error(`캐릭터 정규식을 저장하지 못했습니다: ${avatar}`);
         return;
     }
     const apiIds = new Set([...document.querySelectorAll('select[data-preset-manager-for]')]
@@ -1125,6 +1129,7 @@ async function restoreRegexLayoutOrder({ key, owner, layout }) {
         }
         return;
     }
+    throw new Error('복원할 정규식 프리셋을 찾을 수 없습니다.');
 }
 
 function readRegexLayout(typeKey) {
