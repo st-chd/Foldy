@@ -62,6 +62,8 @@ import {
     getCurrentPresetAPI,
     getCurrentPresetName,
     getScriptsByType,
+    isPresetScriptsAllowed,
+    isScopedScriptsAllowed,
     saveScriptsByType,
     SCRIPT_TYPES,
 } from '../../regex/engine.js';
@@ -1234,8 +1236,17 @@ const {
     reloadCurrentChat,
     refreshRegexScripts: () => eventSource.emit(event_types.CHAT_CHANGED),
     allowRegexScripts: typeKey => {
-        if (typeKey === 'scoped') allowScopedScripts(characters?.[this_chid]);
-        if (typeKey === 'preset') allowPresetScripts(getCurrentPresetAPI(), getCurrentPresetName());
+        if (typeKey === 'scoped') {
+            const character = characters?.[this_chid];
+            allowScopedScripts(character);
+            $('#regex_scoped_toggle').prop('checked', isScopedScriptsAllowed(character));
+        }
+        if (typeKey === 'preset') {
+            const api = getCurrentPresetAPI();
+            const name = getCurrentPresetName();
+            allowPresetScripts(api, name);
+            $('#regex_preset_toggle').prop('checked', isPresetScriptsAllowed(api, name));
+        }
     },
     saveSettingsDebounced,
     createFolderElement,

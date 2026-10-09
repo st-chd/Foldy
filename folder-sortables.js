@@ -96,7 +96,7 @@ export function setupFolderSortables({
 
         const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
             .map(element => element.closest?.(folderHitSelector))
-            .find(Boolean);
+            .find(folder => folder && list.contains(folder));
         lastFolderElement = pointedFolder ?? null;
         list.classList.toggle('foldy-dropping-into-folder', Boolean(pointedFolder));
         list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
@@ -123,9 +123,10 @@ export function setupFolderSortables({
 
     const moveIntoPointedFolder = item => {
         if (!isItemElement(item) || !lastPointer) return null;
-        const folderElement = lastFolderElement || document.elementsFromPoint(lastPointer.x, lastPointer.y)
+        const folderElement = (lastFolderElement && list.contains(lastFolderElement) ? lastFolderElement : null)
+            || document.elementsFromPoint(lastPointer.x, lastPointer.y)
             .map(element => element.closest?.(folderHitSelector))
-            .find(Boolean);
+            .find(folder => folder && list.contains(folder));
         const items = folderElement?.querySelector?.(folderItemsSelector);
         if (!items || items.contains(item)) return null;
         const insertBefore = positionPlaceholderInFolder

@@ -374,10 +374,10 @@ export function createPromptBundleActions({
         importedPrompts.forEach(prompt => {
             const imported = cloneJson(prompt);
             const importedNameKey = nameKey(imported.name);
-            const existing = importedNameIndex.ambiguous.has(importedNameKey)
-                ? null
-                : promptsByName.get(importedNameKey);
             const sourceId = String(imported.identifier);
+            const existing = promptsById.get(sourceId) ?? (importedNameIndex.ambiguous.has(importedNameKey)
+                ? null
+                : promptsByName.get(importedNameKey));
             if (existing) {
                 imported.identifier = existing.identifier;
             } else if (!imported.identifier || usedIds.has(String(imported.identifier))) {
