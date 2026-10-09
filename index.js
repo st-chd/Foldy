@@ -1,6 +1,6 @@
-import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid } from '../../../../script.js';
-import { extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
-import { getChatCompletionPreset, oai_settings, promptManager } from '../../../openai.js';
+import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid, unshallowCharacter } from '../../../../script.js';
+import { extension_settings, renderExtensionTemplateAsync, writeExtensionFieldBulk } from '../../../extensions.js';
+import { getChatCompletionPreset, oai_settings, promptManager, settingsToUpdate } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
 import { getPresetManager } from '../../../preset-manager.js';
 import { renderTemplateAsync } from '../../../templates.js';
@@ -12,6 +12,7 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { registerFoldySlashCommands, unregisterFoldySlashCommand } from './slash-commands.js';
 import { migratePresetRenameSettings, removeFoldyPersistentData } from './lifecycle.js';
 import { cloneJson, createBundleActions } from './bundle-utils.js';
+import { createLayoutBackupActions } from './layout-backup.js';
 import {
     bindAction,
     createLabeledIconButton,
@@ -61,6 +62,8 @@ import {
     getCurrentPresetAPI,
     getCurrentPresetName,
     getScriptsByType,
+    isPresetScriptsAllowed,
+    isScopedScriptsAllowed,
     saveScriptsByType,
     SCRIPT_TYPES,
 } from '../../regex/engine.js';
@@ -121,6 +124,12 @@ let slashCommandsRegistered = false;
 let foldySlashCommand = null;
 let extensionRemoving = false;
 let lastKnownLorebookNames = null;
+let promptPresetChanges = 0;
+let appliedPromptPresetName = null;
+let promptPresetGeneration = 0;
+let appliedPromptPresetGeneration = 0;
+let promptRecoveryGeneration = -1;
+const pendingPromptPresets = new Map();
 const runtimeEventListeners = [];
 const loreWriteQueues = new Map();
 const sessionDisabledFeatures = new Set();
@@ -175,6 +184,7 @@ function registerFoldyRuntimeEvents({
     runtimeEventsRegistered = true;
 
     const onPresetRenamed = ({ apiId, oldName, newName }) => {
+        if (apiId === 'openai' && appliedPromptPresetName === oldName) appliedPromptPresetName = newName;
         revalidateSettings();
         const changed = migratePresetRenameSettings(settings(), {
             apiId,
@@ -191,6 +201,15 @@ function registerFoldyRuntimeEvents({
     };
     const onPresetChanged = () => {
         revalidateSettings();
+        if (!extensionRemoving && !promptPresetChanges && !promptContextReady()
+            && promptRecoveryGeneration !== promptPresetGeneration) {
+            const manager = promptPresetManager();
+            if (manager) {
+                // 지연된 이전 요청이 마지막에 적용되면 현재 선택 대상을 다시 적용한다.
+                promptRecoveryGeneration = promptPresetGeneration + 1;
+                manager.selectPreset(manager.getSelectedPreset()).catch(error => debugLog('프롬프트 프리셋 재적용 실패', error));
+            }
+        }
         renderPrompts();
         renderRegex();
     };
@@ -203,13 +222,41 @@ function registerFoldyRuntimeEvents({
         renderRegex();
     };
     const listeners = [
+        [eventTypes.OAI_PRESET_CHANGED_BEFORE, ({ preset, presetName }) => {
+            promptPresetChanges++;
+            pendingPromptPresets.set(++promptPresetGeneration, { preset, presetName });
+        }],
+        [eventTypes.OAI_PRESET_CHANGED_AFTER, () => {
+            promptPresetChanges = Math.max(0, promptPresetChanges - 1);
+            // 본체는 프리셋에 없는 필드를 기존 값으로 유지한다.
+            const candidates = [...pendingPromptPresets].filter(([, { preset, presetName }]) => {
+                const arrays = ['prompts', 'prompt_order'].filter(key => preset[key] !== undefined);
+                if (arrays.length) return arrays.every(key => preset[key] === oai_settings[key]);
+                const scalars = Object.entries(settingsToUpdate).filter(([key, [, , , connection]]) =>
+                    key !== 'extensions' && !connection && preset[key] !== undefined
+                    && (preset[key] === null || typeof preset[key] !== 'object'));
+                if (scalars.length) return scalars.every(([key, [, setting]]) => Object.is(preset[key], oai_settings[setting]));
+                return pendingPromptPresets.size === 1 && promptExportName() === presetName;
+            });
+            const applied = candidates.length === 1 ? candidates[0] : null;
+            appliedPromptPresetName = applied?.[1].presetName ?? null;
+            appliedPromptPresetGeneration = applied?.[0] ?? -1;
+            if (applied) pendingPromptPresets.delete(applied[0]);
+            if (!promptPresetChanges) pendingPromptPresets.clear();
+            invalidatePromptLayout();
+            restorePromptLayoutOrder();
+        }],
         [eventTypes.PRESET_RENAMED, onPresetRenamed],
         [eventTypes.PRESET_CHANGED, onPresetChanged],
         [eventTypes.WORLDINFO_SETTINGS_UPDATED, onWorldInfoUpdated],
         [eventTypes.CHAT_CHANGED, onChatChanged],
     ];
     listeners.forEach(([event, listener]) => {
-        eventSource.on(event, listener);
+        if (event === eventTypes.OAI_PRESET_CHANGED_BEFORE || event === eventTypes.OAI_PRESET_CHANGED_AFTER) {
+            eventSource.makeFirst(event, listener);
+        } else {
+            eventSource.on(event, listener);
+        }
         runtimeEventListeners.push({ eventSource, event, listener });
     });
 }
@@ -252,6 +299,8 @@ function createSettingsRenderer({
     renderLore,
     renderRegex,
     applyLorebookFeatureState,
+    exportLayouts,
+    importLayouts,
 }) {
     return async function renderSettings() {
         if (document.getElementById('foldy_settings')) return;
@@ -303,6 +352,8 @@ function createSettingsRenderer({
             await requestClearFoldyData('all', 'All');
             rerender();
         }));
+        $('#foldy_export_layouts').on('click', () => withErrorToast('일괄 내보내기', exportLayouts));
+        $('#foldy_import_layouts').on('click', () => withErrorToast('일괄 불러오기', importLayouts));
         sync();
     };
 }
@@ -385,6 +436,12 @@ function promptOwnerKeyForName(name) {
 
 function promptExportName() {
     return promptPresetManager()?.getSelectedPresetName?.() || 'prompts';
+}
+
+function promptContextReady() {
+    return !extensionRemoving && !promptPresetChanges
+        && appliedPromptPresetGeneration === promptPresetGeneration
+        && promptExportName() === appliedPromptPresetName;
 }
 
 function currentPromptPresetSettings(presetName = promptExportName()) {
@@ -596,6 +653,8 @@ const renderSettings = createSettingsRenderer({
     renderLore: () => queueLoreRender(),
     renderRegex: () => enhanceRegexLists(),
     applyLorebookFeatureState: () => applyLorebookFeatureState(),
+    exportLayouts: () => layoutBackupActions.exportLayouts(),
+    importLayouts: () => layoutBackupActions.importLayouts(),
 });
 
 function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, onCollapseChange = null, extraButtons = [] }) {
@@ -696,6 +755,8 @@ const {
     installPromptIntegration,
     teardownPromptIntegration: teardownPromptIntegrationImpl,
     renderPrompts,
+    invalidatePromptLayout,
+    restorePromptLayoutOrder,
 } = createPromptIntegration({
     settings,
     saveSettingsDebounced,
@@ -704,6 +765,7 @@ const {
     promptManager,
     promptPresetManager,
     promptOwnerKey,
+    promptContextReady,
     promptOwnerKeyForName,
     promptExportName,
     currentPromptPresetSettings,
@@ -730,6 +792,34 @@ const {
     createFolderElement,
 });
 teardownPromptIntegration = teardownPromptIntegrationImpl;
+
+const layoutBackupActions = createLayoutBackupActions({
+    settings,
+    liveOwners: () => foldyDataCleanup.liveFoldyOwners(),
+    featureEnabled,
+    syncOwners: () => syncLorebookRenameMigration({ rerender: false }),
+    downloadJson,
+    readJsonFile,
+    confirmText,
+    saveSettingsDebounced,
+    restoreLayoutOrder: entry => entry.key.startsWith('regex.') ? restoreRegexLayoutOrder(entry) : undefined,
+    debugLog,
+    captureRestoreState: plan => plan.entries.some(entry => entry.key.startsWith('regex.')) && getCurrentChatId()
+        ? Object.keys(REGEX_TYPES).map(type => regexItemIds(type)) : null,
+    refreshLayouts: async (plan, activeOrders) => {
+        if (plan.entries.some(entry => entry.key === 'prompts')) {
+            invalidatePromptLayout();
+            restorePromptLayoutOrder();
+            renderPrompts();
+        }
+        queueLoreRender();
+        enhanceRegexLists();
+        if (activeOrders && Object.keys(REGEX_TYPES).some((type, index) =>
+            JSON.stringify(activeOrders[index]) !== JSON.stringify(regexItemIds(type)))) {
+            await reloadCurrentChat();
+        }
+    },
+});
 function loreLayoutFromDom(list, sourceLayout, allIds, pageNodeKeys = null) {
     const domNodes = [];
     for (const element of list.children) {
@@ -1006,6 +1096,73 @@ function regexItemIds(typeKey) {
     return getScriptsByType(REGEX_TYPES[typeKey].scriptType).map(script => String(script.id)).filter(Boolean);
 }
 
+async function restoreRegexLayoutOrder({ key, owner, layout }) {
+    const typeKey = key.slice(6);
+    const matches = (...segments) => owner === foldyOwnerKey(typeKey, ...segments)
+        || owner === legacyFoldyOwnerKey(typeKey, ...segments);
+    if (typeKey === 'global') {
+        const type = REGEX_TYPES.global.scriptType;
+        await saveRegexScriptsSafely(orderItemsByLayout(layout, getScriptsByType(type)), type, owner);
+        return;
+    }
+    if (typeKey === 'scoped') {
+        const characterId = characters.findIndex(character => character?.avatar && matches(character.avatar));
+        if (characterId < 0) throw new Error('복원할 캐릭터를 찾을 수 없습니다.');
+        const avatar = characters[characterId].avatar;
+        await unshallowCharacter(characterId);
+        // 상세 로딩 중 캐릭터 목록이 교체될 수 있으므로 아바타로 다시 찾는다.
+        const character = characters.find(character => character?.avatar === avatar);
+        const scripts = character?.data?.extensions?.regex_scripts;
+        if (character?.shallow || !Array.isArray(scripts)) throw new Error('복원할 캐릭터 정규식을 찾을 수 없습니다.');
+        const result = await writeExtensionFieldBulk([avatar], 'regex_scripts', orderItemsByLayout(layout, scripts));
+        if (!result.updated.includes(avatar)) throw new Error(`캐릭터 정규식을 저장하지 못했습니다: ${avatar}`);
+        return;
+    }
+    const apiIds = new Set([...document.querySelectorAll('select[data-preset-manager-for]')]
+        .flatMap(select => String(select.dataset.presetManagerFor || '').split(',').map(value => value.trim()).filter(Boolean)));
+    apiIds.add(getCurrentPresetAPI?.() || 'openai');
+    for (const apiId of apiIds) {
+        const manager = getPresetManager(apiId);
+        const name = manager?.getAllPresets?.().find(name => matches(apiId, name));
+        if (!name) continue;
+        if (apiId === 'openai' && name === manager.getSelectedPresetName()) {
+            await waitUntilCondition(promptContextReady, 30000, 100);
+        }
+        const scripts = manager.readPresetExtensionField({ name, path: 'regex_scripts' });
+        if (Array.isArray(scripts)) {
+            const value = orderItemsByLayout(layout, scripts);
+            const currentSettings = name === manager.getSelectedPresetName() ? manager.getPresetList().settings : null;
+            const targets = [currentSettings, manager.getCompletionPresetByName(name)].filter(Boolean);
+            // 본체 API는 파일 저장 전에 두 메모리 상태와 현재 설정을 먼저 바꾼다.
+            const rollbacks = targets.map(target => {
+                const extensions = target.extensions;
+                const hadExtensions = Object.hasOwn(target, 'extensions');
+                const hadScripts = Object.hasOwn(extensions || {}, 'regex_scripts');
+                const previousScripts = extensions?.regex_scripts;
+                return () => {
+                    if (extensions && typeof extensions === 'object' && !Array.isArray(extensions)) {
+                        if (extensions.regex_scripts !== value) return;
+                        if (hadScripts) extensions.regex_scripts = previousScripts;
+                        else delete extensions.regex_scripts;
+                    } else if (target.extensions?.regex_scripts === value) {
+                        if (hadExtensions) target.extensions = extensions;
+                        else delete target.extensions;
+                    }
+                };
+            });
+            try {
+                await manager.writePresetExtensionField({ name, path: 'regex_scripts', value });
+            } catch (error) {
+                for (const rollback of rollbacks) rollback();
+                if (currentSettings) saveSettingsDebounced();
+                throw error;
+            }
+        }
+        return;
+    }
+    throw new Error('복원할 정규식 프리셋을 찾을 수 없습니다.');
+}
+
 function readRegexLayout(typeKey) {
     const owner = regexOwnerKey(typeKey);
     const raw = settings().layouts.regex[typeKey][owner];
@@ -1079,8 +1236,17 @@ const {
     reloadCurrentChat,
     refreshRegexScripts: () => eventSource.emit(event_types.CHAT_CHANGED),
     allowRegexScripts: typeKey => {
-        if (typeKey === 'scoped') allowScopedScripts(characters?.[this_chid]);
-        if (typeKey === 'preset') allowPresetScripts(getCurrentPresetAPI(), getCurrentPresetName());
+        if (typeKey === 'scoped') {
+            const character = characters?.[this_chid];
+            allowScopedScripts(character);
+            $('#regex_scoped_toggle').prop('checked', isScopedScriptsAllowed(character));
+        }
+        if (typeKey === 'preset') {
+            const api = getCurrentPresetAPI();
+            const name = getCurrentPresetName();
+            allowPresetScripts(api, name);
+            $('#regex_preset_toggle').prop('checked', isPresetScriptsAllowed(api, name));
+        }
     },
     saveSettingsDebounced,
     createFolderElement,
@@ -1129,6 +1295,12 @@ function folderColorCommandContext(target) {
 
 export async function init() {
     extensionRemoving = false;
+    promptPresetChanges = 0;
+    appliedPromptPresetName = oai_settings.preset_settings_openai;
+    promptPresetGeneration = 0;
+    appliedPromptPresetGeneration = 0;
+    promptRecoveryGeneration = -1;
+    pendingPromptPresets.clear();
     settings();
     if (!slashCommandsRegistered) {
         foldySlashCommand = registerFoldySlashCommands({

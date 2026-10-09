@@ -208,10 +208,13 @@ export function createBundleActions({
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'application/json,.json';
+            input.hidden = true;
+            document.body.append(input);
             let settled = false;
             const settle = value => {
                 if (settled) return;
                 settled = true;
+                input.remove();
                 resolve(value);
             };
             input.addEventListener('cancel', () => settle(null), { once: true });

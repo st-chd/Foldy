@@ -131,9 +131,12 @@ export function createPromptSortables({
                     manager.render(false);
                     return;
                 }
-                await persistPromptLayout(owner, next, manager);
-                setCurrentPromptLayout(next);
-                sourceLayout = next;
+                const pending = persistPromptLayout(owner, next, manager);
+                const savedLayout = getCurrentPromptLayout();
+                await pending;
+                if (promptOwnerKey() !== owner || getCurrentPromptLayout() !== savedLayout) return;
+                setCurrentPromptLayout(savedLayout);
+                sourceLayout = savedLayout;
             } catch (error) {
                 debugLog('프롬프트 폴더 순서 저장 실패', error);
                 toastr.error('프롬프트 폴더 순서를 저장하지 못했습니다.');
@@ -181,6 +184,7 @@ export function createPromptBundleActions({
     waitUntilCondition,
     promptOwnerKey,
     promptOwnerKeyForName,
+    promptContextReady = () => true,
     promptExportName,
     promptPresetManager,
     currentPromptPresetSettings,
@@ -206,11 +210,14 @@ export function createPromptBundleActions({
     }
 
     async function importPromptLayoutBundle(bundle, manager) {
+        if (!promptContextReady()) throw new Error('프리셋 전환이 끝난 뒤 폴더 구조를 불러와 주세요.');
         if (!bundle?.layout) {
             toastr.error('프롬프트 구조 번들에 폴더 구조가 없습니다.');
             return;
         }
         const currentPreset = promptExportName();
+        const owner = promptOwnerKey();
+        const currentOrder = manager.getPromptOrderForCharacter(manager.activeCharacter);
         const sourcePreset = promptBundlePresetName(bundle) || 'unknown preset';
         const currentPrompts = manager.serviceSettings.prompts || [];
         const currentIds = promptOrderIds(manager);
@@ -254,15 +261,15 @@ export function createPromptBundleActions({
             })}`,
         );
         if (!confirmed) return;
+        if (!promptContextReady() || promptOwnerKey() !== owner || currentOrder !== manager.getPromptOrderForCharacter(manager.activeCharacter)) {
+            toastr.info('프리셋이 변경되어 폴더 구조 불러오기를 취소했습니다.');
+            return;
+        }
 
         const currentLayout = normalizeLayout(null, currentIds);
         const importedLayout = remapImportedLayout(bundle.layout, idMap);
         const renameTracker = createFolderRenameTracker();
         const layout = mergeImportedLayout(currentLayout, importedLayout, currentIds, renameTracker.options);
-        const owner = promptOwnerKey();
-        settings().layouts.prompts[owner] = layout;
-        setCurrentPromptLayout(layout);
-        saveSettingsDebounced();
         await persistPromptLayout(owner, layout, manager);
         manager.render(false);
         renameTracker.notify();
@@ -270,6 +277,7 @@ export function createPromptBundleActions({
     }
 
     async function exportPromptBundle(manager) {
+        if (!promptContextReady()) throw new Error('프리셋 전환이 끝난 뒤 폴더를 내보내 주세요.');
         const owner = promptOwnerKey();
         const currentPromptLayout = getCurrentPromptLayout();
         const layout = currentPromptLayout
@@ -281,6 +289,11 @@ export function createPromptBundleActions({
         const presetManager = promptPresetManager();
         const presetName = promptExportName();
         const ids = new Set(flattenLayout(layout));
+        const promptRefs = promptLayoutRefs(manager, [...ids]);
+        const prompts = (manager.serviceSettings.prompts || []).filter(prompt => prompt?.identifier).map(cloneJson);
+        const promptOrder = manager.getPromptOrderForCharacter(manager.activeCharacter)
+            .filter(entry => ids.has(String(entry.identifier))).map(cloneJson);
+        const presetSettings = promptPresetSettingsWithManagerState(currentPromptPresetSettings(presetName), manager);
         const mode = await requestPromptExportMode();
         if (!mode) return;
 
@@ -291,24 +304,17 @@ export function createPromptBundleActions({
                 owner,
                 presetName,
                 layout: cloneJson(layout),
-                promptRefs: promptLayoutRefs(manager, [...ids]),
+                promptRefs,
             }, bundleFilename(`${presetName}-folders`))) return;
             toastr.success('프롬프트 폴더 구조를 내보냈습니다.');
             return;
         }
 
-        const prompts = (manager.serviceSettings.prompts || [])
-            .filter(prompt => prompt?.identifier)
-            .map(cloneJson);
-        const promptOrder = manager.getPromptOrderForCharacter(manager.activeCharacter)
-            .filter(entry => ids.has(String(entry.identifier)))
-            .map(cloneJson);
-
         if (!await downloadJson({
             ...bundleEnvelope('prompts'),
             owner,
             presetName,
-            presetSettings: promptPresetSettingsWithManagerState(currentPromptPresetSettings(presetName), manager),
+            presetSettings,
             layout: cloneJson(layout),
             prompts,
             promptOrder,
@@ -354,7 +360,7 @@ export function createPromptBundleActions({
         const presetValue = presetManager.findPreset(presetName);
         if (presetValue === undefined) throw new Error(`저장한 프리셋을 찾을 수 없습니다: ${presetName}`);
         await presetManager.selectPreset(presetValue);
-        await waitUntilCondition(() => presetManager.getSelectedPresetName() === presetName, 5000, 100);
+        await waitUntilCondition(() => promptContextReady() && presetManager.getSelectedPresetName() === presetName, 5000, 100);
 
         const importedPrompts = bundle.prompts.filter(prompt => prompt?.identifier);
         const importedNameIndex = uniqueNameIndex(importedPrompts, prompt => prompt?.name);
@@ -368,10 +374,10 @@ export function createPromptBundleActions({
         importedPrompts.forEach(prompt => {
             const imported = cloneJson(prompt);
             const importedNameKey = nameKey(imported.name);
-            const existing = importedNameIndex.ambiguous.has(importedNameKey)
-                ? null
-                : promptsByName.get(importedNameKey);
             const sourceId = String(imported.identifier);
+            const existing = promptsById.get(sourceId) ?? (importedNameIndex.ambiguous.has(importedNameKey)
+                ? null
+                : promptsByName.get(importedNameKey));
             if (existing) {
                 imported.identifier = existing.identifier;
             } else if (!imported.identifier || usedIds.has(String(imported.identifier))) {

@@ -676,6 +676,7 @@ export function createRegexBundleActions({
         let layout = cloneJson(snapshot.layout);
         const type = regexTypes[typeKey].scriptType;
         let scripts = getScriptsByType(type).map(cloneJson);
+        const sourceName = regexExportName(typeKey);
         const selection = await requestRegexExportMode(typeKey, layout.folders);
         if (!selection) return;
         const { mode, folderIds } = selection;
@@ -690,6 +691,9 @@ export function createRegexBundleActions({
             scripts = scripts.filter(script => selectedIds.has(String(script.id)));
         }
         const ids = new Set(flattenLayout(layout));
+        const exportName = folderIds
+            ? `${sourceName}.${layout.folders.map(folder => folder.name).join('+')}`
+            : sourceName;
 
         if (mode === 'layout') {
             if (!await downloadJson({
@@ -699,7 +703,7 @@ export function createRegexBundleActions({
                 owner,
                 layout: cloneJson(layout),
                 scriptRefs: regexLayoutRefs(scripts, [...ids]),
-            }, bundleFilename(`${regexExportName(typeKey)}-folders`))) return;
+            }, bundleFilename(`${exportName}-folders`))) return;
             toastr.success('정규식 폴더 구조를 내보냈습니다.');
             return;
         }
@@ -710,7 +714,7 @@ export function createRegexBundleActions({
             owner,
             layout: cloneJson(layout),
             scripts,
-        }, bundleFilename(regexExportName(typeKey)))) return;
+        }, bundleFilename(exportName))) return;
         toastr.success('정규식 번들을 내보냈습니다.');
     }
 
