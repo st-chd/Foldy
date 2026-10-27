@@ -18,6 +18,7 @@ import {
     remapImportedLayout,
 } from './model.js';
 import { setupFolderSortables } from './folder-sortables.js';
+import { dividersFromFolderElement } from './folder-ui.js';
 
 export function promptBundlePresetName(bundle) {
     if (bundle?.presetName) return String(bundle.presetName);
@@ -85,7 +86,7 @@ export function promptDomNodesFromList(list, { preserveFolderIds = new Set() } =
                 : [...(element.querySelector('.foldy-folder-items')?.children || [])]
                     .map(item => item.dataset.pmIdentifier)
                     .filter(Boolean);
-            nodes.push({ type: 'folder', id, itemIds });
+            nodes.push({ type: 'folder', id, itemIds, dividers: dividersFromFolderElement(element) });
         } else if (element.dataset.pmIdentifier) {
             nodes.push({ type: 'item', id: element.dataset.pmIdentifier });
         }
@@ -150,7 +151,7 @@ export function createPromptSortables({
             list,
             nestedItemsSelector: '.foldy-prompt-items',
             rootSortableItems: '> .completion_prompt_manager_prompt_draggable, > .foldy-folder',
-            nestedSortableItems: '> .completion_prompt_manager_prompt_draggable',
+            nestedSortableItems: '> .completion_prompt_manager_prompt_draggable, > .foldy-divider',
             connectWith: '#completion_prompt_manager_list, .foldy-prompt-items',
             folderHitSelector: '.foldy-prompt-folder',
             folderItemsSelector: '.foldy-prompt-items',

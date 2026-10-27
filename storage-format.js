@@ -47,6 +47,7 @@ function canonicalLayout(layout, collapsedIds) {
                 if (!isRecord(folder)) return { invalid: folder ?? null };
                 const { id: _id, ...rest } = folder;
                 for (const [key] of STYLE_KEYS) if (rest[key] === '' || rest[key] === undefined) delete rest[key];
+                if (Array.isArray(rest.dividers) && !rest.dividers.length) delete rest.dividers;
                 return { ...rest, collapsed: collapsed.has(String(folder.id)) };
             })
             : layout.folders ?? null,
@@ -65,6 +66,7 @@ function encodeLayoutUnchecked(layout, collapsedIds) {
             const encoded = { n: folder.name, i: joinIds(folder.items.map(String)) };
             for (const [key, short] of STYLE_KEYS) if (folder[key]) encoded[short] = folder[key];
             if (collapsed.has(String(folder.id))) encoded.x = 1;
+            if (folder.dividers?.length) encoded.d = folder.dividers.map(String);
             return encoded;
         }),
     };
@@ -77,7 +79,7 @@ export function decodeLayout(encoded) {
     const source = isRecord(encoded) ? encoded : {};
     const folders = (Array.isArray(source.f) ? source.f : []).map((value, index) => {
         const folder = isRecord(value) ? value : {};
-        return {
+        const decoded = {
             id: String(index + 1),
             name: String(folder.n ?? ''),
             color: typeof folder.c === 'string' ? folder.c : '',
@@ -85,6 +87,8 @@ export function decodeLayout(encoded) {
             nameColor: typeof folder.t === 'string' ? folder.t : '',
             items: splitIds(folder.i),
         };
+        if (Array.isArray(folder.d) && folder.d.length) decoded.dividers = folder.d.map(String);
+        return decoded;
     });
     const root = splitIds(source.r).flatMap(entry => {
         if (entry.startsWith('f')) {

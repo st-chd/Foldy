@@ -1,11 +1,13 @@
 import {
     closeOpenFolderMenus,
+    renderFolderDividers,
     updateFolderCount,
 } from './folder-ui.js';
 import { createPromptBundleActions, createPromptSortables, promptOrderIds } from './prompt-bundles.js';
 import {
     layoutFollowingExternalOrder,
     layoutWithAddedFolder,
+    layoutWithFolderDividers,
     layoutWithItemsMovedToFolder,
     layoutWithMovedFolder,
     layoutWithUpdatedFolder,
@@ -358,6 +360,14 @@ export function createPromptIntegration({
                     await persistPromptLayout(owner, result.layout, manager);
                     rerender();
                 },
+                itemIdFromElement: item => item.dataset?.pmIdentifier,
+                onDividersChange: async (folderId, dividers) => {
+                    const activeLayout = currentPromptLayout;
+                    if (rerenderIfPromptContextChanged(activeLayout)) return;
+                    const result = layoutWithFolderDividers(activeLayout, folderId, dividers);
+                    if (result.changed) await persistPromptLayout(owner, result.layout, manager);
+                    rerender();
+                },
             });
             const items = folderElement.querySelector('.foldy-folder-items');
             folder.items.forEach(id => {
@@ -380,6 +390,7 @@ export function createPromptIntegration({
                     items.append(item);
                 }
             });
+            renderFolderDividers(folderElement, folder);
             updateFolderCount(folderElement, {
                 itemIdFromElement: item => item.dataset.pmIdentifier,
                 isItemEnabled: id => promptEnabledById.get(String(id)) === true,

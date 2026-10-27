@@ -67,6 +67,31 @@ export function orderItemsByLayout(layout, items, getId = item => item?.id) {
     return ordered;
 }
 
+// 구분선은 "이 항목 뒤"로 저장한다. 기준 항목이 빠지면 앞쪽 남은 항목으로 옮긴다.
+export function normalizeDividers(rawDividers, originalItems, keptItems) {
+    if (!Array.isArray(rawDividers) || !rawDividers.length) return [];
+    const kept = new Set(keptItems.map(String));
+    const original = originalItems.map(String);
+    const anchors = new Set();
+    for (const value of rawDividers) {
+        let anchor = String(value ?? '');
+        if (anchor && !kept.has(anchor)) {
+            const index = original.indexOf(anchor);
+            if (index === -1) continue;
+            anchor = original.slice(0, index).reverse().find(id => kept.has(id)) ?? '';
+        }
+        anchors.add(anchor);
+    }
+    const position = new Map(keptItems.map((id, index) => [String(id), index]));
+    return [...anchors].sort((left, right) => (left ? position.get(left) : -1) - (right ? position.get(right) : -1));
+}
+
+function folderWithoutItems(folder, isRemoved) {
+    const items = folder.items.filter(value => !isRemoved(String(value)));
+    if (!folder.dividers?.length || items.length === folder.items.length) return { ...folder, items };
+    return { ...folder, items, dividers: normalizeDividers(folder.dividers, folder.items, items) };
+}
+
 function uniqueFolderName(name, usedNames) {
     const base = String(name || '새 폴더').trim() || '새 폴더';
     let candidate = base;
@@ -96,12 +121,13 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         usedFolderIds.add(id);
 
         const items = [];
-        for (const value of Array.isArray(candidate.items) ? candidate.items : []) {
-            const itemId = String(value);
+        const requestedItems = (Array.isArray(candidate.items) ? candidate.items : []).map(String);
+        for (const itemId of requestedItems) {
             if (!validSet.has(itemId) || placedItems.has(itemId)) continue;
             placedItems.add(itemId);
             items.push(itemId);
         }
+        const dividers = normalizeDividers(candidate.dividers, requestedItems, items);
 
         const requestedName = String(candidate.name || '새 폴더').trim() || '새 폴더';
         const name = uniqueFolderName(candidate.name, usedFolderNames);
@@ -114,6 +140,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
             borderColor: typeof candidate.borderColor === 'string' ? candidate.borderColor : '',
             nameColor: typeof candidate.nameColor === 'string' ? candidate.nameColor : '',
             items,
+            ...(dividers.length ? { dividers } : {}),
         });
     }
 
@@ -396,7 +423,10 @@ export function layoutFromTree(nodes, sourceLayout, itemIds = [], {
             const items = preserved.has(id) || node.preserveItems
                 ? [...source.items]
                 : (Array.isArray(node.itemIds) ? node.itemIds : []).map(String).filter(Boolean);
-            folders.push({ ...source, items });
+            const folder = { ...source, items };
+            // 화면에서 다시 읽은 구분선이 있으면 그 위치를 쓴다.
+            if (!preserved.has(id) && !node.preserveItems && Array.isArray(node.dividers)) folder.dividers = node.dividers.map(String);
+            folders.push(folder);
             root.push({ type: 'folder', id });
             if (preserved.has(id)) seenPreservedFolders.add(id);
             continue;
@@ -461,6 +491,9 @@ export function remapImportedLayout(layout, itemIdMap, createFolderId = generate
             ...folder,
             id: folderIdMap.get(String(folder.id)),
             items: (folder.items || []).map(id => itemIdMap.get(String(id))).filter(Boolean),
+            ...(Array.isArray(folder.dividers)
+                ? { dividers: folder.dividers.map(id => (String(id) === '' ? '' : itemIdMap.get(String(id)))).filter(id => id !== undefined) }
+                : {}),
         })).filter(folder => folder.id),
     };
 }
@@ -470,10 +503,7 @@ function removeItemsFromLayout(layout, itemIds) {
     return {
         version: FOLDY_VERSION,
         root: (layout.root || []).filter(node => node.type !== 'item' || !ids.has(String(node.id))),
-        folders: (layout.folders || []).map(folder => ({
-            ...folder,
-            items: (folder.items || []).filter(id => !ids.has(String(id))),
-        })),
+        folders: (layout.folders || []).map(folder => folderWithoutItems({ ...folder, items: folder.items || [] }, id => ids.has(id))),
     };
 }
 
@@ -595,10 +625,7 @@ export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
     if (targetFolderId && !layout.folders.some(value => value.id === targetFolderId)) return { changed: false, layout };
 
     const root = layout.root.filter(node => !(node.type === 'item' && node.id === id));
-    const folders = layout.folders.map(folder => ({
-        ...folder,
-        items: folder.items.filter(value => value !== id),
-    }));
+    const folders = layout.folders.map(folder => folderWithoutItems(folder, value => value === id));
 
     if (!targetFolderId) {
         return {
@@ -627,10 +654,7 @@ export function layoutWithItemsMovedToFolder(layout, itemIds, folderId) {
     if (targetFolderId && !layout.folders.some(value => value.id === targetFolderId)) return { changed: false, layout };
 
     const root = layout.root.filter(node => !(node.type === 'item' && idSet.has(String(node.id))));
-    const folders = layout.folders.map(folder => ({
-        ...folder,
-        items: folder.items.filter(value => !idSet.has(String(value))),
-    }));
+    const folders = layout.folders.map(folder => folderWithoutItems(folder, value => idSet.has(value)));
 
     if (!targetFolderId) {
         return {
@@ -697,6 +721,20 @@ export function layoutWithMovedFolder(layout, folderId, afterKey = '') {
         return { changed: false, layout };
     }
     return { changed: true, layout: { ...layout, root } };
+}
+
+export function layoutWithFolderDividers(layout, folderId, dividers) {
+    const id = String(folderId ?? '');
+    const source = layout.folders.find(folder => folder.id === id);
+    if (!source) return { changed: false, layout };
+    const next = normalizeDividers(dividers, source.items, source.items);
+    if (JSON.stringify(next) === JSON.stringify(source.dividers ?? [])) return { changed: false, layout };
+    const folders = layout.folders.map(folder => {
+        if (folder.id !== id) return folder;
+        const { dividers: _previous, ...rest } = folder;
+        return next.length ? { ...rest, dividers: next } : rest;
+    });
+    return { changed: true, layout: { ...layout, folders } };
 }
 
 // 새 객체를 반환해 대기 중인 화면의 오래된 상태를 감지한다.

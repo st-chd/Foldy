@@ -172,6 +172,11 @@ export function setupFolderSortables({
                 rerender();
                 return;
             }
+            // 구분선은 폴더 안에서만 옮길 수 있다.
+            if (item?.classList?.contains('foldy-divider') && !item.parentElement?.matches?.(folderItemsSelector)) {
+                rerender();
+                return;
+            }
             const move = moveIntoPointedFolder(item);
             if (move?.folderId && moveItemToFolder && !move.preserveDomPosition) {
                 await moveItemToFolder(String(itemIdFromElement(item)), move.folderId);
