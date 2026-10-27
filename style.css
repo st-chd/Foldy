@@ -345,6 +345,10 @@
     display: flex;
 }
 
+.foldy-move-form .foldy-create-items-list label.foldy-divider-pick.is-checked {
+    border-bottom: 1px dashed color-mix(in srgb, var(--SmartThemeBodyColor) 45%, transparent);
+}
+
 @media (hover: none) {
     .foldy-divider .foldy-divider-remove {
         display: flex;

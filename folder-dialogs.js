@@ -568,6 +568,50 @@ export function createFolderDialogs({
         };
     }
 
+    // 체크한 항목 아래에 구분선을 둔다. 폴더 맨 위 구분선은 그대로 유지한다.
+    async function requestFolderDividers(folder, labelById = new Map()) {
+        if (!folder?.items?.length) {
+            toastr.info('폴더에 항목이 없습니다.');
+            return null;
+        }
+        const current = new Set((folder.dividers || []).map(String));
+
+        const form = document.createElement('div');
+        form.className = 'foldy-move-form foldy-divider-form';
+        const title = document.createElement('div');
+        title.className = 'foldy-edit-title';
+        title.textContent = '[구분선] ' + folder.name;
+        const itemGroup = document.createElement('div');
+        itemGroup.className = 'foldy-create-items';
+        const list = document.createElement('div');
+        list.className = 'foldy-create-items-list';
+        for (const id of folder.items.map(String)) {
+            const label = document.createElement('label');
+            label.className = 'checkbox flex-container foldy-divider-pick';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = id;
+            checkbox.checked = current.has(id);
+            label.classList.toggle('is-checked', checkbox.checked);
+            checkbox.addEventListener('input', () => label.classList.toggle('is-checked', checkbox.checked));
+            const text = document.createElement('span');
+            text.textContent = labelById.get(id) || id;
+            text.title = text.textContent;
+            appendSelectionRow(label, checkbox, text);
+            list.append(label);
+        }
+        itemGroup.append(list);
+        form.append(title, itemGroup);
+
+        const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
+            okButton: '저장',
+            cancelButton: '취소',
+        }).show();
+        if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
+        const checked = [...list.querySelectorAll('input[type="checkbox"]:checked')].map(input => String(input.value));
+        return [...(current.has('') ? [''] : []), ...checked];
+    }
+
     function createRootBulkMoveButton(onClick) {
         const button = createIconButton('fa-folder-tree', '\uBBF8\uBD84\uB958 \uC77C\uAD04 \uC774\uB3D9', 'foldy-root-bulk-move');
         bindAction(button, '\uBBF8\uBD84\uB958 \uC77C\uAD04 \uC774\uB3D9', onClick, { withErrorToast });
@@ -636,6 +680,7 @@ export function createFolderDialogs({
         requestFolderSettings,
         requestMoveTarget,
         requestFlexibleBulkMove,
+        requestFolderDividers,
         createRootBulkMoveButton,
         attachMoveToFolderButton,
     };

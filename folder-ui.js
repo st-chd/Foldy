@@ -392,6 +392,7 @@ export function createFolderElement(folder, {
     extraButtons = [],
     itemIdFromElement = null,
     onDividersChange = null,
+    onEditDividers = null,
     ownerCollapsed,
     saveCollapsed,
     withErrorToast,
@@ -433,11 +434,8 @@ export function createFolderElement(folder, {
     const bulkMove = createIconButton('fa-folder-tree', '일괄 이동', 'foldy-bulk-move');
     bulkMove.addEventListener('click', () => withErrorToast('일괄 이동', () => onBulkMove?.(folder.id)));
 
-    const addDivider = createIconButton('fa-grip-lines', '구분선 추가', 'foldy-add-divider');
-    addDivider.addEventListener('click', () => withErrorToast('구분선 추가', () => {
-        const current = dividersFromFolderElement(element) ?? folder.dividers ?? [];
-        return onDividersChange(folder.id, [...current, String(folder.items.at(-1) ?? '')]);
-    }));
+    const addDivider = createIconButton('fa-grip-lines', '구분선', 'foldy-add-divider');
+    addDivider.addEventListener('click', () => withErrorToast('구분선 편집', () => onEditDividers(folder.id)));
 
     const remove = createIconButton('fa-trash', '폴더 삭제', 'caution');
     remove.addEventListener('click', () => withErrorToast('폴더 삭제', () => onDelete(folder.id)));
@@ -550,7 +548,7 @@ export function createFolderElement(folder, {
     }
     if (onDividersChange && itemIdFromElement) {
         element.__foldyDividerOptions = { kind, itemIdFromElement, onDividersChange, withErrorToast };
-        actions.append(addDivider);
+        if (onEditDividers) actions.append(addDivider);
     }
     actions.append(edit, remove);
     header.append(more, actions);

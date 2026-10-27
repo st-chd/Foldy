@@ -653,6 +653,7 @@ const {
     requestNewRegexFolder,
     requestFolderSettings,
     requestFlexibleBulkMove,
+    requestFolderDividers,
     createRootBulkMoveButton,
     attachMoveToFolderButton,
 } = createFolderDialogs({
@@ -697,7 +698,7 @@ const renderSettings = createSettingsRenderer({
     importLayouts: () => layoutBackupActions.importLayouts(),
 });
 
-function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, onCollapseChange = null, extraButtons = [], itemIdFromElement = null, onDividersChange = null }) {
+function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, onCollapseChange = null, extraButtons = [], itemIdFromElement = null, onDividersChange = null, onEditDividers = null }) {
     return createFolderElementBase(folder, {
         kind,
         owner,
@@ -711,6 +712,7 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
         extraButtons,
         itemIdFromElement,
         onDividersChange,
+        onEditDividers,
         ownerCollapsed,
         saveCollapsed,
         withErrorToast,
@@ -829,6 +831,7 @@ const {
     requestFolderSettings,
     confirmFolderDelete,
     requestFlexibleBulkMove,
+    requestFolderDividers,
     requestNewFolder,
     attachMoveToFolderButton,
     createFolderElement,

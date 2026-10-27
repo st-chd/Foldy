@@ -165,6 +165,7 @@ export function createPromptIntegration({
     requestFolderSettings,
     confirmFolderDelete,
     requestFlexibleBulkMove,
+    requestFolderDividers,
     requestNewFolder,
     attachMoveToFolderButton,
     createFolderElement,
@@ -366,6 +367,21 @@ export function createPromptIntegration({
                     if (rerenderIfPromptContextChanged(activeLayout)) return;
                     const result = layoutWithFolderDividers(activeLayout, folderId, dividers);
                     if (result.changed) await persistPromptLayout(owner, result.layout, manager);
+                    rerender();
+                },
+                onEditDividers: async id => {
+                    const activeLayout = currentPromptLayout;
+                    const target = activeLayout.folders.find(value => value.id === id);
+                    const labels = new Map([...itemMap.entries()].map(([itemId, element]) => [
+                        String(itemId),
+                        element.querySelector('.completion_prompt_manager_prompt_name')?.textContent?.trim() || String(itemId),
+                    ]));
+                    const dividers = await requestFolderDividers(target, labels);
+                    if (!dividers) return;
+                    if (rerenderIfPromptContextChanged(activeLayout)) return;
+                    const result = layoutWithFolderDividers(activeLayout, id, dividers);
+                    if (!result.changed) return;
+                    await persistPromptLayout(owner, result.layout, manager);
                     rerender();
                 },
             });
