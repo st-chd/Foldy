@@ -1,5 +1,6 @@
 import { bindAction, createColorSetting, createIconButton, createSelectionToolbar, appendSelectionRow, themeColorHex } from './folder-ui.js';
 import {
+    foldersInDisplayOrder,
     hasDuplicateFolderName,
     layoutWithItemMovedToFolder,
     rootItemIds,
@@ -432,7 +433,7 @@ export function createFolderDialogs({
         rootOption.value = '';
         rootOption.textContent = '\uCD5C\uC0C1\uC704 (\uD3F4\uB354 \uC5C6\uC74C)';
         select.append(rootOption);
-        for (const folder of layout.folders) {
+        for (const folder of foldersInDisplayOrder(layout)) {
             const option = document.createElement('option');
             option.value = folder.id;
             option.textContent = truncateOptionLabel(folder.name);
@@ -456,7 +457,7 @@ export function createFolderDialogs({
         const rootSource = { id: '', name: '\uBBF8\uBD84\uB958', items: rootItemIds(layout) };
         const sources = [
             rootSource,
-            ...layout.folders.map(folder => ({ id: String(folder.id), name: folder.name, items: folder.items || [] })),
+            ...foldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name, items: folder.items || [] })),
         ];
         const requestedSource = sources.find(source => source.id === requestedSourceId);
         const firstFilledSource = sources.find(source => source.items.length && source.id !== requestedSourceId);
@@ -511,7 +512,7 @@ export function createFolderDialogs({
             targetSelect.innerHTML = '';
             const targetOptions = [
                 { id: '', name: '\uBBF8\uBD84\uB958' },
-                ...layout.folders.map(folder => ({ id: String(folder.id), name: folder.name })),
+                ...foldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name })),
             ].filter(target => target.id !== currentSourceId);
             for (const target of targetOptions) {
                 const option = document.createElement('option');

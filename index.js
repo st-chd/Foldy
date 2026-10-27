@@ -1,4 +1,4 @@
-import { characters, eventSource, event_types, getCurrentChatId, reloadCurrentChat, saveSettingsDebounced, this_chid, unshallowCharacter } from '../../../../script.js';
+import { characters, eventSource, event_types, getCurrentChatId, getRequestHeaders, reloadCurrentChat, saveSettingsDebounced, this_chid, unshallowCharacter } from '../../../../script.js';
 import { extension_settings, renderExtensionTemplateAsync, writeExtensionFieldBulk } from '../../../extensions.js';
 import { getChatCompletionPreset, oai_settings, promptManager, settingsToUpdate } from '../../../openai.js';
 import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
@@ -146,6 +146,46 @@ function settings() {
 
 function revalidateSettings() {
     return foldySettingsStore.revalidateSettings();
+}
+
+function textToBase64(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = '';
+    for (let index = 0; index < bytes.length; index += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+    }
+    return btoa(binary);
+}
+
+async function uploadUserFile(name, text) {
+    const response = await fetch('/api/files/upload', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ name, data: textToBase64(text) }),
+    });
+    if (!response.ok) throw new Error(`파일 저장 실패: ${response.status}`);
+    const { path } = await response.json();
+    if (typeof path !== 'string' || !path) throw new Error('파일 저장 경로를 받지 못했습니다.');
+    return path;
+}
+
+// 이미 없는 파일도 삭제된 것으로 본다.
+async function deleteUserFile(path) {
+    const response = await fetch('/api/files/delete', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ path }),
+    });
+    return response.ok || response.status === 404;
+}
+
+async function maintainLegacyBackup() {
+    try {
+        const changed = await foldySettingsStore.maintainLegacyBackup({ upload: uploadUserFile, remove: deleteUserFile });
+        if (changed) saveSettingsDebounced();
+    } catch (error) {
+        debugLog('이전 형식 폴더 데이터 백업 실패', error, 'warn');
+    }
 }
 
 function debugLog(message, detail = null, level = 'error') {
@@ -1302,6 +1342,7 @@ export async function init() {
     promptRecoveryGeneration = -1;
     pendingPromptPresets.clear();
     settings();
+    maintainLegacyBackup();
     if (!slashCommandsRegistered) {
         foldySlashCommand = registerFoldySlashCommands({
             SlashCommandParser, SlashCommand, SlashCommandNamedArgument, ARGUMENT_TYPE,
@@ -1361,6 +1402,7 @@ export async function onDelete() {
 export async function onClean() {
     // 실행 중인 렌더를 먼저 무효화하고, 느린 UI 복구를 기다리는 동안 저장 데이터는 즉시 지운다.
     const teardown = teardownFoldyRuntime();
+    const legacyBackupPath = extension_settings[SETTINGS_KEY]?.legacyBackup?.path;
     const removedData = removeFoldyPersistentData({
         extensionSettings: extension_settings,
         settingsKey: SETTINGS_KEY,
@@ -1370,6 +1412,9 @@ export async function onClean() {
         loreSortValues: [LEGACY_LORE_SORT_VALUE, LORE_SORT_VALUE],
     });
     saveSettingsDebounced();
+    if (typeof legacyBackupPath === 'string' && legacyBackupPath) {
+        await deleteUserFile(legacyBackupPath).catch(error => debugLog('이전 형식 백업 파일 삭제 실패', error, 'warn'));
+    }
     await teardown;
     return removedData;
 }

@@ -30,6 +30,17 @@ export function flattenLayout(layout) {
     });
 }
 
+// folders 배열은 생성 순서라 화면 순서(root)로 다시 늘어놓는다.
+export function foldersInDisplayOrder(layout) {
+    const byId = new Map(layout.folders.map(folder => [String(folder.id), folder]));
+    const ordered = layout.root
+        .filter(node => node?.type === 'folder')
+        .map(node => byId.get(String(node.id)))
+        .filter(Boolean);
+    const placed = new Set(ordered);
+    return [...ordered, ...layout.folders.filter(folder => !placed.has(folder))];
+}
+
 export function orderItemsByLayout(layout, items, getId = item => item?.id) {
     const byId = new Map();
     items.forEach((item, index) => {
