@@ -288,10 +288,12 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
         if (!value) return;
         syncPicker(value);
     });
-    reset.addEventListener('click', () => {
-        hex.value = '';
+    // 선택기는 색을 바꾸는 즉시 change를 보내 입력칸을 다시 채우므로, 입력칸은 마지막에 비운다.
+    const clear = () => {
         syncPicker('');
-    });
+        hex.value = '';
+    };
+    reset.addEventListener('click', clear);
 
     controls.append(picker, hex, reset);
     field.append(label, controls);
@@ -308,10 +310,7 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
             picker.setAttribute('button-width', size);
             picker.setAttribute('button-height', size);
         },
-        reset: () => {
-            hex.value = '';
-            syncPicker('');
-        },
+        reset: clear,
     };
 }
 

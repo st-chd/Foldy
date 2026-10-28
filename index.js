@@ -701,7 +701,10 @@ const renderSettings = createSettingsRenderer({
     withErrorToast,
     requestClearFoldyData,
     renderPrompts: () => promptManager?.render?.(false),
-    renderLore: () => queueLoreRender(),
+    renderLore: () => {
+        queueLoreRender();
+        lorebookHome.render();
+    },
     renderRegex: () => enhanceRegexLists(),
     applyLorebookFeatureState: () => applyLorebookFeatureState(),
     applyLorebookHome: () => lorebookHome.applyMode(),
