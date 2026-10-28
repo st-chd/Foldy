@@ -142,7 +142,8 @@ export function createFoldySettingsStore({
         if (!hydrated.has(value)) hydrate(value);
         const ensureObject = key => {
             if (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key])) {
-                preserveCorrupted(value, key, value[key]);
+                // 아직 없던 칸은 손상이 아니므로 기록하지 않는다.
+                if (value[key] !== undefined) preserveCorrupted(value, key, value[key]);
                 value[key] = {};
             }
             return value[key];
@@ -153,7 +154,7 @@ export function createFoldySettingsStore({
         const ui = ensureObject('ui');
         const ensureChildObject = (parent, key, label) => {
             if (!parent[key] || typeof parent[key] !== 'object' || Array.isArray(parent[key])) {
-                preserveCorrupted(value, label, parent[key]);
+                if (parent[key] !== undefined) preserveCorrupted(value, label, parent[key]);
                 parent[key] = {};
             }
             return parent[key];
@@ -178,6 +179,13 @@ export function createFoldySettingsStore({
         ensureChildObject(collapsed, 'lore', 'collapsed.lore');
         ensureChildObject(collapsed, 'book', 'collapsed.book');
         ensureChildObject(collapsed, 'regex', 'collapsed.regex');
+        // 빈 값만 남은 _corrupted는 지운다.
+        if (isRecord(value._corrupted)) {
+            for (const key of Object.keys(value._corrupted)) {
+                if (value._corrupted[key] === undefined) delete value._corrupted[key];
+            }
+            if (!Object.keys(value._corrupted).length) delete value._corrupted;
+        }
         cachedSettings = value;
         return cachedSettings;
     };
