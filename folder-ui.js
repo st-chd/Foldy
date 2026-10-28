@@ -279,8 +279,12 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
         picker.color = next;
     };
 
+    // 선택기는 화면에 붙을 때도 change를 보내므로, 직접 만진 뒤의 변경만 입력칸에 옮긴다.
+    let pickerTouched = false;
+    picker.addEventListener('pointerdown', () => { pickerTouched = true; });
+    picker.addEventListener('keydown', () => { pickerTouched = true; });
     picker.addEventListener('change', event => {
-        if (document.activeElement === hex) return;
+        if (!pickerTouched || document.activeElement === hex) return;
         hex.value = event.detail?.rgba || picker.getAttribute('color') || '';
     });
     hex.addEventListener('input', () => {
