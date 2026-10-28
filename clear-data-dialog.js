@@ -397,6 +397,10 @@ export function createFoldyDataCleanup({
             lorebookGroups.forEach((owners, label) => {
                 addItem({ kind: 'lorebooks', title: '로어북', owner: owners.join('\n'), owners, label });
             });
+            for (const owner of Object.keys(state.layouts.books || {})) {
+                if (!hasStoredFolders(state.layouts.books[owner])) continue;
+                addItem({ kind: 'books', title: '로어북', owner, label: '로어북 홈' });
+            }
         }
 
         if (scope === 'all' || scope === 'regex') {
@@ -432,6 +436,9 @@ export function createFoldyDataCleanup({
                     delete state.layouts.lorebooks[owner];
                     delete state.collapsed.lore[owner];
                 }
+            } else if (item.kind === 'books') {
+                delete state.layouts.books[item.owner];
+                delete state.collapsed.book[item.owner];
             } else if (item.kind === 'regex') {
                 const layout = state.layouts.regex?.[item.typeKey]?.[item.owner];
                 if (!layout || !item.folderId) continue;
@@ -493,6 +500,8 @@ export function createFoldyDataCleanup({
         if (scope === 'all' || scope === 'lorebooks') {
             state.layouts.lorebooks = {};
             state.collapsed.lore = {};
+            state.layouts.books = {};
+            state.collapsed.book = {};
             // 정렬과 페이지 크기도 별도 저장소에서 지운다.
             if (accountStorage && sortOrderKey && accountStorage.getItem(sortOrderKey) === loreSortValue) {
                 accountStorage.removeItem(sortOrderKey);

@@ -1,4 +1,5 @@
-import { bindAction, createColorSetting, createIconButton, createSelectionToolbar, appendSelectionRow, themeColorHex } from './folder-ui.js';
+import { bindAction, createBorderSidesSetting, createColorSetting, createIconButton, createSelectSetting, createSelectionToolbar, createSettingRow, appendSelectionRow, themeColorHex } from './folder-ui.js';
+import { BORDER_WIDTHS, folderBorder } from './folder-style.js';
 import {
     foldersInDisplayOrder,
     hasDuplicateFolderName,
@@ -354,29 +355,50 @@ export function createFolderDialogs({
         });
 
         const backgroundColor = createColorSetting('\uBC30\uACBD\uC0C9', folder.color, themeColorHex('--SmartThemeBlurTintColor'));
-        const borderColor = createColorSetting('\uD14C\uB450\uB9AC\uC0C9', folder.borderColor, themeColorHex('--SmartThemeBorderColor'));
         const nameColor = createColorSetting('\uC774\uB984 \uC0C9\uC0C1', folder.nameColor, themeColorHex('--SmartThemeBodyColor', '#ffffff'));
+        const borderColor = createColorSetting('\uD14C\uB450\uB9AC', folder.borderColor, themeColorHex('--SmartThemeBorderColor'));
+        const border = folderBorder(folder);
+        const borderWidth = createSelectSetting([
+            ['', '\uAE30\uBCF8\uAC12'],
+            ...BORDER_WIDTHS.map(width => [width, `${width}px`]),
+        ], border.width);
+        const borderStyle = createSelectSetting([
+            ['', '\uC2E4\uC120'],
+            ['dashed', '\uD30C\uC120'],
+            ['dotted', '\uC810\uC120'],
+            ['double', '\uC774\uC911\uC120'],
+        ], border.style === 'solid' ? '' : border.style);
+        const borderSides = createBorderSidesSetting('\uBC29\uD5A5', border.sides);
+        const designSettings = [backgroundColor, nameColor, borderColor, borderWidth, borderStyle, borderSides];
+        // \uAD6C\uBD84\uC120\uC73C\uB85C\uB9CC \uBB36\uC74C\uC744 \uB098\uB208\uB2E4.
+        const divider = () => Object.assign(document.createElement('hr'), { className: 'foldy-settings-divider' });
 
         const applyAllField = document.createElement('label');
         applyAllField.className = 'checkbox flex-container foldy-apply-style-all';
         const applyAllCheckbox = document.createElement('input');
         applyAllCheckbox.type = 'checkbox';
         const applyAllText = document.createElement('span');
-        applyAllText.textContent = '\uB2E4\uB978 \uD3F4\uB354\uC5D0\uB3C4 \uC0C9\uC0C1 \uC801\uC6A9';
+        applyAllText.textContent = '\uB2E4\uB978 \uD3F4\uB354\uC5D0\uB3C4 \uB514\uC790\uC778 \uC801\uC6A9';
         applyAllField.append(applyAllCheckbox, applyAllText);
 
         form.append(title, nameField);
         if (position) form.append(position.field);
-        form.append(backgroundColor.field, borderColor.field, nameColor.field, applyAllField);
+        form.append(
+            divider(), backgroundColor.field, nameColor.field,
+            divider(), borderColor.field, createSettingRow('\uC120', borderWidth.select, borderStyle.select), borderSides.field,
+            divider(), applyAllField,
+        );
 
         const popup = new Popup(form, POPUP_TYPE.CONFIRM, '', {
             okButton: '\uC801\uC6A9',
             cancelButton: '\uCDE8\uC18C',
             customButtons: [{
-                text: '\uAE30\uBCF8\uAC12',
-                tooltip: '\uBAA8\uB4E0 \uC0C9\uC0C1\uC744 \uD14C\uB9C8 \uAE30\uBCF8\uAC12\uC73C\uB85C \uB418\uB3CC\uB9AC\uAE30',
-                action: () => [backgroundColor, borderColor, nameColor].forEach(setting => setting.reset()),
+                text: '\uBAA8\uB450 \uAE30\uBCF8\uAC12',
+                classes: ['foldy-reset-all'],
+                tooltip: '\uBAA8\uB4E0 \uB514\uC790\uC778\uC744 \uAE30\uBCF8\uAC12\uC73C\uB85C \uB418\uB3CC\uB9AC\uAE30',
+                action: () => designSettings.forEach(setting => setting.reset()),
             }],
+            onOpen: () => [backgroundColor, nameColor, borderColor].forEach(setting => setting.fitSwatch()),
             onClosing: value => {
                 if (value.result !== POPUP_RESULT.AFFIRMATIVE) return true;
                 const name = nameInput.value.trim();
@@ -403,6 +425,9 @@ export function createFolderDialogs({
             color: backgroundColor.value(),
             borderColor: borderColor.value(),
             nameColor: nameColor.value(),
+            borderWidth: borderWidth.value(),
+            borderStyle: borderStyle.value(),
+            borderSides: borderSides.value(),
             applyStyleToAll: applyAllCheckbox.checked,
             afterKey: position?.select.value || '',
         };

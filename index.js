@@ -37,6 +37,7 @@ import {
     setLoreFolderEntriesEnabled,
     syncLoreOriginalEntry,
 } from './lorebook-integration.js';
+import { BOOK_HOME_OWNER, createLorebookHome, renameBookInLayout } from './lorebook-home.js';
 import {
     createRegexBundleActions,
     createRegexIntegration,
@@ -339,6 +340,7 @@ function createSettingsRenderer({
     renderLore,
     renderRegex,
     applyLorebookFeatureState,
+    applyLorebookHome,
     exportLayouts,
     importLayouts,
 }) {
@@ -350,6 +352,7 @@ function createSettingsRenderer({
         const sync = () => {
             $('#foldy_enable_prompts').prop('checked', featureEnabled('prompts'));
             $('#foldy_enable_lorebooks').prop('checked', featureEnabled('lorebooks'));
+            $('#foldy_enable_lorebook_home').prop('checked', featureEnabled('lorebookHome'));
             $('#foldy_enable_regex').prop('checked', featureEnabled('regex'));
         };
         const rerender = (scope = 'all') => {
@@ -369,6 +372,11 @@ function createSettingsRenderer({
             saveSettingsDebounced();
             applyLorebookFeatureState();
             rerender();
+        });
+        $('#foldy_enable_lorebook_home').on('input', function () {
+            settings().features.lorebookHome = !!this.checked;
+            saveSettingsDebounced();
+            applyLorebookHome();
         });
         $('#foldy_enable_regex').on('input', function () {
             sessionDisabledFeatures.delete('regex');
@@ -559,7 +567,9 @@ function syncLorebookRenameMigration({ rerender = true } = {}) {
     if (!rename) return;
     const oldOwner = lorebookOwnerForName(rename.oldName);
     const newOwner = lorebookOwnerForName(rename.newName);
-    if (migrateLorebookOwnerKey(oldOwner, newOwner)) {
+    const books = renameBookInLayout(settings().layouts.books[BOOK_HOME_OWNER], rename.oldName, rename.newName);
+    if (books) settings().layouts.books[BOOK_HOME_OWNER] = books;
+    if (migrateLorebookOwnerKey(oldOwner, newOwner) || books) {
         saveSettingsDebounced();
         if (rerender) queueLoreRender();
     }
@@ -694,6 +704,7 @@ const renderSettings = createSettingsRenderer({
     renderLore: () => queueLoreRender(),
     renderRegex: () => enhanceRegexLists(),
     applyLorebookFeatureState: () => applyLorebookFeatureState(),
+    applyLorebookHome: () => lorebookHome.applyMode(),
     exportLayouts: () => layoutBackupActions.exportLayouts(),
     importLayouts: () => layoutBackupActions.importLayouts(),
 });
@@ -840,7 +851,7 @@ teardownPromptIntegration = teardownPromptIntegrationImpl;
 
 const layoutBackupActions = createLayoutBackupActions({
     settings,
-    liveOwners: () => foldyDataCleanup.liveFoldyOwners(),
+    liveOwners: () => ({ ...foldyDataCleanup.liveFoldyOwners(), books: new Set([BOOK_HOME_OWNER]) }),
     featureEnabled,
     syncOwners: () => syncLorebookRenameMigration({ rerender: false }),
     downloadJson,
@@ -858,6 +869,7 @@ const layoutBackupActions = createLayoutBackupActions({
             renderPrompts();
         }
         queueLoreRender();
+        lorebookHome.render();
         enhanceRegexLists();
         if (activeOrders && Object.keys(REGEX_TYPES).some((type, index) =>
             JSON.stringify(activeOrders[index]) !== JSON.stringify(regexItemIds(type)))) {
@@ -1137,6 +1149,28 @@ function createLoreBulkSettingButtons(name, data, layout, folder, shouldAbort = 
     debugLog,
 }));
 
+const lorebookHome = createLorebookHome({
+    featureEnabled,
+    settings,
+    saveSettingsDebounced,
+    getWorldNames: () => world_names,
+    syncOwners: () => syncLorebookRenameMigration({ rerender: false }),
+    updateWorldInfoList,
+    createFolderElement,
+    ownerCollapsed,
+    saveCollapsed,
+    requestNewFolder,
+    requestFolderSettings,
+    requestFlexibleBulkMove,
+    createRootBulkMoveButton,
+    confirmText,
+    shouldRejectDomLayout,
+    waitUntilCondition,
+    getSortableDelay,
+    withErrorToast,
+    debugLog,
+});
+
 function regexItemIds(typeKey) {
     return getScriptsByType(REGEX_TYPES[typeKey].scriptType).map(script => String(script.id)).filter(Boolean);
 }
@@ -1360,6 +1394,7 @@ export async function init() {
     await Promise.all([
         installOptionalIntegration({ label: 'lorebook', action: installLorebookIntegration, debugLog }),
         installOptionalIntegration({ label: 'regex', action: installRegexIntegration, debugLog }),
+        installOptionalIntegration({ label: 'lorebook home', action: lorebookHome.install, debugLog }),
     ]);
     registerFoldyRuntimeEvents({
         eventSource,
@@ -1389,6 +1424,7 @@ async function teardownFoldyRuntime() {
     const teardowns = [
         ['프롬프트', teardownPromptIntegration],
         ['로어북', teardownLorebookIntegration],
+        ['로어북 홈', lorebookHome.teardown],
         ['정규식', teardownRegexIntegration],
     ];
     const teardownResults = await Promise.allSettled(teardowns.map(([, action]) => action()));

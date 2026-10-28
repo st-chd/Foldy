@@ -139,6 +139,9 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
             color: typeof candidate.color === 'string' ? candidate.color : '',
             borderColor: typeof candidate.borderColor === 'string' ? candidate.borderColor : '',
             nameColor: typeof candidate.nameColor === 'string' ? candidate.nameColor : '',
+            ...Object.fromEntries(['borderWidth', 'borderStyle', 'borderSides']
+                .filter(key => typeof candidate[key] === 'string' && candidate[key])
+                .map(key => [key, candidate[key]])),
             items,
             ...(dividers.length ? { dividers } : {}),
         });

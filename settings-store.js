@@ -162,18 +162,21 @@ export function createFoldySettingsStore({
         features.prompts ??= true;
         features.lorebooks ??= true;
         features.regex ??= true;
+        features.lorebookHome ??= false;
         const positionFilter = ensureChildObject(ui, 'positionFilter', 'ui.positionFilter');
         for (const kind of POSITION_FILTER_KINDS) {
             if (!POSITION_FILTER_VALUES.includes(positionFilter[kind])) positionFilter[kind] = DEFAULT_POSITION_FILTER;
         }
         ensureChildObject(layouts, 'prompts', 'layouts.prompts');
         ensureChildObject(layouts, 'lorebooks', 'layouts.lorebooks');
+        ensureChildObject(layouts, 'books', 'layouts.books');
         const regexLayouts = ensureChildObject(layouts, 'regex', 'layouts.regex');
         ensureChildObject(regexLayouts, 'global', 'layouts.regex.global');
         ensureChildObject(regexLayouts, 'scoped', 'layouts.regex.scoped');
         ensureChildObject(regexLayouts, 'preset', 'layouts.regex.preset');
         ensureChildObject(collapsed, 'prompt', 'collapsed.prompt');
         ensureChildObject(collapsed, 'lore', 'collapsed.lore');
+        ensureChildObject(collapsed, 'book', 'collapsed.book');
         ensureChildObject(collapsed, 'regex', 'collapsed.regex');
         cachedSettings = value;
         return cachedSettings;

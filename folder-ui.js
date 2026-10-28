@@ -1,4 +1,4 @@
-import { folderStyleValues } from './folder-style.js';
+import { BORDER_SIDES, borderSidesValue, folderBorder, folderStyleValues } from './folder-style.js';
 
 export { folderStyleValues } from './folder-style.js';
 
@@ -271,12 +271,7 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
     hex.placeholder = '#fff, #ffffff, transparent, rgba(...)';
     hex.spellcheck = false;
 
-    const reset = document.createElement('button');
-    reset.className = 'menu_button foldy-color-reset';
-    reset.type = 'button';
-    reset.textContent = '기본값';
-    reset.title = '테마 기본값으로 되돌리기';
-    reset.setAttribute('aria-label', '테마 기본값으로 되돌리기');
+    const reset = createIconButton('fa-rotate-left', '기본값', 'foldy-color-reset');
 
     const syncPicker = value => {
         const next = pickerColor(value, pickerFallback);
@@ -300,15 +295,78 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
 
     controls.append(picker, hex, reset);
     field.append(label, controls);
+    picker.setAttribute('button-padding', '0');
 
     return {
         field,
         value: () => normalizeColor(hex.value),
         isValid: () => !hex.value.trim() || isColorValue(hex.value),
+        // 선택기 버튼은 기본 3rem×1.5rem이라, 화면에 그려진 뒤 입력칸 높이의 정사각형으로 맞춘다.
+        fitSwatch: () => {
+            if (!hex.offsetHeight) return;
+            const size = `${hex.offsetHeight}px`;
+            picker.setAttribute('button-width', size);
+            picker.setAttribute('button-height', size);
+        },
         reset: () => {
             hex.value = '';
             syncPicker('');
         },
+    };
+}
+
+// label로 감싸면 라벨 클릭이 첫 컨트롤을 누르므로, 컨트롤이 여럿인 줄은 div로 만든다.
+export function createSettingRow(labelText, ...controls) {
+    const field = document.createElement('div');
+    field.className = 'foldy-setting-row';
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    const group = document.createElement('span');
+    group.className = 'foldy-setting-controls';
+    group.append(...controls);
+    field.append(label, group);
+    return field;
+}
+
+export function createSelectSetting(options, initialValue = '') {
+    const select = document.createElement('select');
+    select.className = 'text_pole';
+    options.forEach(([value, text]) => select.append(new Option(text, value)));
+    select.value = initialValue;
+    return {
+        select,
+        value: () => select.value,
+        reset: () => {
+            select.value = '';
+        },
+    };
+}
+
+export function createBorderSidesSetting(labelText, initialSides) {
+    const buttons = document.createElement('span');
+    buttons.className = 'foldy-border-sides';
+    const names = { top: '위', bottom: '아래', left: '왼쪽', right: '오른쪽' };
+    const setOn = (button, on) => {
+        // toggleEnabled는 실리태번과 테마가 켜진 버튼에 쓰는 표시다.
+        button.classList.toggle('is-on', on);
+        button.classList.toggle('toggleEnabled', on);
+        button.setAttribute('aria-pressed', String(on));
+    };
+    const toggles = ['top', 'bottom', 'left', 'right'].map(side => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'menu_button foldy-border-side';
+        button.dataset.side = side;
+        button.textContent = names[side];
+        setOn(button, initialSides.includes(side));
+        button.addEventListener('click', () => setOn(button, !button.classList.contains('is-on')));
+        return button;
+    });
+    buttons.append(...toggles);
+    return {
+        field: createSettingRow(labelText, buttons),
+        value: () => borderSidesValue(toggles.filter(button => button.classList.contains('is-on')).map(button => button.dataset.side)),
+        reset: () => toggles.forEach(button => setOn(button, true)),
     };
 }
 
@@ -405,6 +463,14 @@ export function createFolderElement(folder, {
     if (backgroundColor) element.style.setProperty('--foldy-background-color', backgroundColor);
     if (borderColor) element.style.setProperty('--foldy-border-color', borderColor);
     element.style.setProperty('--foldy-name-color', normalizeColor(folder.nameColor) || 'var(--SmartThemeBodyColor)');
+    const border = folderBorder(folder);
+    if (border.style) element.style.setProperty('--foldy-border-style', border.style);
+    if (border.width || border.sides.length < BORDER_SIDES.length) {
+        const width = `${border.width || 1}px`;
+        BORDER_SIDES.forEach(side => element.style.setProperty(`--foldy-border-${side}`, border.sides.includes(side) ? width : '0px'));
+    }
+    // 한쪽만 그린 테두리는 둥근 모서리에서 선 끝이 휘어 보인다.
+    element.classList.toggle('foldy-partial-border', border.sides.length < BORDER_SIDES.length);
 
     const header = document.createElement('div');
     header.className = 'foldy-folder-header';

@@ -3,7 +3,8 @@ import { FOLDY_VERSION } from './model.js';
 export const STORE_VERSION = 2;
 export const REGEX_LAYOUT_TYPES = ['global', 'scoped', 'preset'];
 
-const STYLE_KEYS = [['color', 'c'], ['borderColor', 'b'], ['nameColor', 't']];
+const BORDER_KEYS = [['borderWidth', 'w'], ['borderStyle', 's'], ['borderSides', 'e']];
+const STYLE_KEYS = [['color', 'c'], ['borderColor', 'b'], ['nameColor', 't'], ...BORDER_KEYS];
 
 function isRecord(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -87,6 +88,7 @@ export function decodeLayout(encoded) {
             nameColor: typeof folder.t === 'string' ? folder.t : '',
             items: splitIds(folder.i),
         };
+        for (const [key, short] of BORDER_KEYS) if (typeof folder[short] === 'string' && folder[short]) decoded[key] = folder[short];
         if (Array.isArray(folder.d) && folder.d.length) decoded.dividers = folder.d.map(String);
         return decoded;
     });
@@ -148,6 +150,7 @@ export function encodeStore(layouts = {}, collapsed = {}) {
         v: STORE_VERSION,
         prompts: encodeBucket(source.prompts, states.prompt, owner => owner),
         lorebooks: encodeBucket(source.lorebooks, states.lore, owner => owner),
+        books: encodeBucket(source.books, states.book, owner => owner),
         regex: Object.fromEntries(REGEX_LAYOUT_TYPES.map(typeKey => [
             typeKey,
             encodeBucket(source.regex?.[typeKey], states.regex, owner => regexCollapsedKey(typeKey, owner)),
@@ -157,10 +160,11 @@ export function encodeStore(layouts = {}, collapsed = {}) {
 
 export function decodeStore(store) {
     const source = isRecord(store) ? store : {};
-    const collapsed = { prompt: {}, lore: {}, regex: {} };
+    const collapsed = { prompt: {}, lore: {}, book: {}, regex: {} };
     const layouts = {
         prompts: decodeBucket(source.prompts, collapsed.prompt, owner => owner),
         lorebooks: decodeBucket(source.lorebooks, collapsed.lore, owner => owner),
+        books: decodeBucket(source.books, collapsed.book, owner => owner),
         regex: Object.fromEntries(REGEX_LAYOUT_TYPES.map(typeKey => [
             typeKey,
             decodeBucket(source.regex?.[typeKey], collapsed.regex, owner => regexCollapsedKey(typeKey, owner)),
