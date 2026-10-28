@@ -343,20 +343,16 @@
     background-color: var(--SmartThemeBlurTintColor);
 }
 
-.foldy-divider:hover .foldy-divider-remove,
-.foldy-divider:focus-within .foldy-divider-remove {
-    display: flex;
+/* 터치 기기는 탭을 hover로 남기므로, 모바일에서는 구분선 편집 창에서만 지운다. */
+@media (hover: hover) {
+    .foldy-divider:hover .foldy-divider-remove,
+    .foldy-divider:focus-within .foldy-divider-remove {
+        display: flex;
+    }
 }
 
 .foldy-move-form .foldy-create-items-list label.foldy-divider-pick.is-checked {
     border-bottom: 1px dashed color-mix(in srgb, var(--SmartThemeBodyColor) 45%, transparent);
-}
-
-@media (hover: none) {
-    .foldy-divider .foldy-divider-remove {
-        display: flex;
-        opacity: 0.6;
-    }
 }
 
 .foldy-folder.is-collapsed .foldy-folder-items {

@@ -593,7 +593,7 @@ export function createFolderDialogs({
         };
     }
 
-    // 체크한 항목 아래에 구분선을 둔다. 폴더 맨 위 구분선은 그대로 유지한다.
+    // 체크한 항목 아래에 구분선을 둔다. 맨 위 구분선은 있을 때만 줄을 보여 해제할 수 있게 한다.
     async function requestFolderDividers(folder, labelById = new Map()) {
         if (!folder?.items?.length) {
             toastr.info('폴더에 항목이 없습니다.');
@@ -610,7 +610,8 @@ export function createFolderDialogs({
         itemGroup.className = 'foldy-create-items';
         const list = document.createElement('div');
         list.className = 'foldy-create-items-list';
-        for (const id of folder.items.map(String)) {
+        const ids = [...(current.has('') ? [''] : []), ...folder.items.map(String)];
+        for (const id of ids) {
             const label = document.createElement('label');
             label.className = 'checkbox flex-container foldy-divider-pick';
             const checkbox = document.createElement('input');
@@ -620,7 +621,7 @@ export function createFolderDialogs({
             label.classList.toggle('is-checked', checkbox.checked);
             checkbox.addEventListener('input', () => label.classList.toggle('is-checked', checkbox.checked));
             const text = document.createElement('span');
-            text.textContent = labelById.get(id) || id;
+            text.textContent = id ? (labelById.get(id) || id) : '맨 위';
             text.title = text.textContent;
             appendSelectionRow(label, checkbox, text);
             list.append(label);
@@ -634,7 +635,7 @@ export function createFolderDialogs({
         }).show();
         if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
         const checked = [...list.querySelectorAll('input[type="checkbox"]:checked')].map(input => String(input.value));
-        return [...(current.has('') ? [''] : []), ...checked];
+        return checked;
     }
 
     function createRootBulkMoveButton(onClick) {
