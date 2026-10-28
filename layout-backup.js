@@ -7,12 +7,14 @@ function layoutBuckets(layouts, live, enabled) {
     return [
         ['prompts', layouts.prompts, live.prompts, enabled('prompts')],
         ['lorebooks', layouts.lorebooks, live.lorebooks, enabled('lorebooks')],
+        // 홈 배치가 없던 이전 백업 파일도 그대로 불러온다.
+        ['books', layouts.books ?? {}, live.books ?? new Set(), enabled('lorebookHome')],
         ...TYPES.map(type => [`regex.${type}`, layouts.regex?.[type], live.regexLayouts[type], enabled('regex')]),
     ];
 }
 
 function emptyLayouts() {
-    return { prompts: {}, lorebooks: {}, regex: { global: {}, scoped: {}, preset: {} } };
+    return { prompts: {}, lorebooks: {}, books: {}, regex: { global: {}, scoped: {}, preset: {} } };
 }
 
 function bucketFor(layouts, key) {
@@ -63,7 +65,7 @@ function validateLayout(layout) {
         && layout.root.every(node => isObjectRecord(node) && ['item', 'folder'].includes(node.type) && string(node.id))
         && layout.folders.every(folder => isObjectRecord(folder) && string(folder.id) && string(folder.name)
             && Array.isArray(folder.items) && folder.items.every(string)
-            && ['color', 'borderColor', 'nameColor'].every(key => folder[key] === undefined || string(folder[key])));
+            && ['color', 'borderColor', 'nameColor', 'borderWidth', 'borderStyle', 'borderSides'].every(key => folder[key] === undefined || string(folder[key])));
 }
 
 export function planLayoutImport(bundle, live, enabled = () => true) {
@@ -150,7 +152,7 @@ export function createLayoutBackupActions({
                 await refreshLayouts({ ...plan, entries: restored }, restoreState);
             }
             if (failed.length) {
-                const labels = { prompts: '프롬프트', lorebooks: '로어북', 'regex.global': '글로벌 정규식',
+                const labels = { prompts: '프롬프트', lorebooks: '로어북', books: '로어북 홈', 'regex.global': '글로벌 정규식',
                     'regex.scoped': '캐릭터 정규식', 'regex.preset': '프리셋 정규식' };
                 const targets = failed.map(entry => `${labels[entry.key]}: ${entry.owner}`).join(', ');
                 toastr.warning(`${restored.length}개 대상 복원 완료, ${failed.length}개 대상 실패. 실패 대상: ${targets}`,

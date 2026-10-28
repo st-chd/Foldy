@@ -1,4 +1,4 @@
-import { folderStyleValues } from './folder-style.js';
+import { BORDER_SIDES, borderSidesValue, folderBorder, folderStyleValues } from './folder-style.js';
 
 export { folderStyleValues } from './folder-style.js';
 
@@ -52,7 +52,8 @@ export function bindAction(button, label, handler, {
 }
 
 export function updateFolderCount(folderElement, { itemIdFromElement = null, isItemEnabled = null } = {}) {
-    const children = [...(folderElement.querySelector('.foldy-folder-items')?.children || [])];
+    const children = [...(folderElement.querySelector('.foldy-folder-items')?.children || [])]
+        .filter(child => !child.classList?.contains('foldy-divider'));
     const count = children.length;
     const countElement = folderElement.querySelector('.foldy-folder-count');
     if (!countElement) return;
@@ -270,12 +271,7 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
     hex.placeholder = '#fff, #ffffff, transparent, rgba(...)';
     hex.spellcheck = false;
 
-    const reset = document.createElement('button');
-    reset.className = 'menu_button foldy-color-reset';
-    reset.type = 'button';
-    reset.textContent = '기본값';
-    reset.title = '테마 기본값으로 되돌리기';
-    reset.setAttribute('aria-label', '테마 기본값으로 되돌리기');
+    const reset = createIconButton('fa-rotate-left', '기본값', 'foldy-color-reset');
 
     const syncPicker = value => {
         const next = pickerColor(value, pickerFallback);
@@ -283,8 +279,12 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
         picker.color = next;
     };
 
+    // 선택기는 화면에 붙을 때도 change를 보내므로, 직접 만진 뒤의 변경만 입력칸에 옮긴다.
+    let pickerTouched = false;
+    picker.addEventListener('pointerdown', () => { pickerTouched = true; });
+    picker.addEventListener('keydown', () => { pickerTouched = true; });
     picker.addEventListener('change', event => {
-        if (document.activeElement === hex) return;
+        if (!pickerTouched || document.activeElement === hex) return;
         hex.value = event.detail?.rgba || picker.getAttribute('color') || '';
     });
     hex.addEventListener('input', () => {
@@ -292,23 +292,144 @@ export function createColorSetting(labelText, initialValue, pickerFallback = DEF
         if (!value) return;
         syncPicker(value);
     });
-    reset.addEventListener('click', () => {
-        hex.value = '';
+    // 선택기는 색을 바꾸는 즉시 change를 보내 입력칸을 다시 채우므로, 입력칸은 마지막에 비운다.
+    const clear = () => {
         syncPicker('');
-    });
+        hex.value = '';
+    };
+    reset.addEventListener('click', clear);
 
     controls.append(picker, hex, reset);
     field.append(label, controls);
+    picker.setAttribute('button-padding', '0');
 
     return {
         field,
         value: () => normalizeColor(hex.value),
         isValid: () => !hex.value.trim() || isColorValue(hex.value),
+        // 선택기 버튼은 기본 3rem×1.5rem이라, 화면에 그려진 뒤 입력칸 높이의 정사각형으로 맞춘다.
+        fitSwatch: () => {
+            if (!hex.offsetHeight) return;
+            const size = `${hex.offsetHeight}px`;
+            picker.setAttribute('button-width', size);
+            picker.setAttribute('button-height', size);
+        },
+        reset: clear,
+    };
+}
+
+// label로 감싸면 라벨 클릭이 첫 컨트롤을 누르므로, 컨트롤이 여럿인 줄은 div로 만든다.
+export function createSettingRow(labelText, ...controls) {
+    const field = document.createElement('div');
+    field.className = 'foldy-setting-row';
+    const label = document.createElement('span');
+    label.textContent = labelText;
+    const group = document.createElement('span');
+    group.className = 'foldy-setting-controls';
+    group.append(...controls);
+    field.append(label, group);
+    return field;
+}
+
+export function createSelectSetting(options, initialValue = '') {
+    const select = document.createElement('select');
+    select.className = 'text_pole';
+    options.forEach(([value, text]) => select.append(new Option(text, value)));
+    select.value = initialValue;
+    return {
+        select,
+        value: () => select.value,
         reset: () => {
-            hex.value = '';
-            syncPicker('');
+            select.value = '';
         },
     };
+}
+
+export function createBorderSidesSetting(labelText, initialSides) {
+    const buttons = document.createElement('span');
+    buttons.className = 'foldy-border-sides';
+    const names = { top: '위', bottom: '아래', left: '왼쪽', right: '오른쪽' };
+    const setOn = (button, on) => {
+        // toggleEnabled는 실리태번과 테마가 켜진 버튼에 쓰는 표시다.
+        button.classList.toggle('is-on', on);
+        button.classList.toggle('toggleEnabled', on);
+        button.setAttribute('aria-pressed', String(on));
+    };
+    const toggles = ['top', 'bottom', 'left', 'right'].map(side => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'menu_button foldy-border-side';
+        button.dataset.side = side;
+        button.textContent = names[side];
+        setOn(button, initialSides.includes(side));
+        button.addEventListener('click', () => setOn(button, !button.classList.contains('is-on')));
+        return button;
+    });
+    buttons.append(...toggles);
+    return {
+        field: createSettingRow(labelText, buttons),
+        value: () => borderSidesValue(toggles.filter(button => button.classList.contains('is-on')).map(button => button.dataset.side)),
+        reset: () => toggles.forEach(button => setOn(button, true)),
+    };
+}
+
+function createDividerElement(kind, onRemove, withErrorToast) {
+    const element = document.createElement(kind === 'regex' ? 'div' : 'li');
+    element.className = 'foldy-divider';
+    const line = document.createElement('span');
+    line.className = 'foldy-divider-line drag-handle';
+    line.title = '구분선 이동';
+    const remove = createIconButton('fa-xmark', '구분선 삭제', 'foldy-divider-remove');
+    remove.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        withErrorToast('구분선 삭제', () => onRemove(element));
+    });
+    element.append(line, remove);
+    return element;
+}
+
+// 폴더 항목이 전부 그려졌을 때만 구분선을 넣고, 저장할 때 화면 위치를 다시 읽는다.
+export function renderFolderDividers(folderElement, folder) {
+    const options = folderElement?.__foldyDividerOptions;
+    const items = folderElement?.querySelector('.foldy-folder-items');
+    if (!options || !items) return;
+    items.querySelectorAll(':scope > .foldy-divider').forEach(element => element.remove());
+    delete items.dataset.foldyDividers;
+    const rendered = new Map();
+    for (const child of items.children) {
+        const id = options.itemIdFromElement(child);
+        if (id) rendered.set(String(id), child);
+    }
+    const folderItems = folder.items.map(String);
+    if (rendered.size !== folderItems.length || !folderItems.every(id => rendered.has(id))) return;
+    const onRemove = element => {
+        element.remove();
+        return options.onDividersChange(folder.id, dividersFromFolderElement(folderElement) ?? []);
+    };
+    for (const anchor of folder.dividers || []) {
+        const divider = createDividerElement(options.kind, onRemove, options.withErrorToast);
+        if (!anchor) items.prepend(divider);
+        else rendered.get(anchor)?.after(divider);
+    }
+    items.dataset.foldyDividers = 'true';
+}
+
+export function dividersFromFolderElement(folderElement) {
+    const options = folderElement?.__foldyDividerOptions;
+    const items = folderElement?.querySelector('.foldy-folder-items');
+    if (!options || items?.dataset.foldyDividers !== 'true') return undefined;
+    let previous = '';
+    const dividers = [];
+    for (const child of items.children) {
+        if (child.classList.contains('foldy-divider')) {
+            dividers.push(previous);
+            continue;
+        }
+        const id = options.itemIdFromElement(child);
+        if (id) previous = String(id);
+    }
+    return dividers;
 }
 
 export function setStateButtonIcon(button, state) {
@@ -330,6 +451,9 @@ export function createFolderElement(folder, {
     onBulkMove = null,
     onCollapseChange = null,
     extraButtons = [],
+    itemIdFromElement = null,
+    onDividersChange = null,
+    onEditDividers = null,
     ownerCollapsed,
     saveCollapsed,
     withErrorToast,
@@ -342,6 +466,14 @@ export function createFolderElement(folder, {
     if (backgroundColor) element.style.setProperty('--foldy-background-color', backgroundColor);
     if (borderColor) element.style.setProperty('--foldy-border-color', borderColor);
     element.style.setProperty('--foldy-name-color', normalizeColor(folder.nameColor) || 'var(--SmartThemeBodyColor)');
+    const border = folderBorder(folder);
+    if (border.style) element.style.setProperty('--foldy-border-style', border.style);
+    if (border.width || border.sides.length < BORDER_SIDES.length) {
+        const width = `${border.width || 1}px`;
+        BORDER_SIDES.forEach(side => element.style.setProperty(`--foldy-border-${side}`, border.sides.includes(side) ? width : '0px'));
+    }
+    // 한쪽만 그린 테두리는 둥근 모서리에서 선 끝이 휘어 보인다.
+    element.classList.toggle('foldy-partial-border', border.sides.length < BORDER_SIDES.length);
 
     const header = document.createElement('div');
     header.className = 'foldy-folder-header';
@@ -370,6 +502,9 @@ export function createFolderElement(folder, {
 
     const bulkMove = createIconButton('fa-folder-tree', '일괄 이동', 'foldy-bulk-move');
     bulkMove.addEventListener('click', () => withErrorToast('일괄 이동', () => onBulkMove?.(folder.id)));
+
+    const addDivider = createIconButton('fa-grip-lines', '구분선', 'foldy-add-divider');
+    addDivider.addEventListener('click', () => withErrorToast('구분선 편집', () => onEditDividers(folder.id)));
 
     const remove = createIconButton('fa-trash', '폴더 삭제', 'caution');
     remove.addEventListener('click', () => withErrorToast('폴더 삭제', () => onDelete(folder.id)));
@@ -479,6 +614,10 @@ export function createFolderElement(folder, {
     if (onBulkMove) {
         header.classList.add('has-bulk-move');
         actions.append(bulkMove);
+    }
+    if (onDividersChange && itemIdFromElement) {
+        element.__foldyDividerOptions = { kind, itemIdFromElement, onDividersChange, withErrorToast };
+        if (onEditDividers) actions.append(addDivider);
     }
     actions.append(edit, remove);
     header.append(more, actions);

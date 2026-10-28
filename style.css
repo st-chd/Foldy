@@ -172,7 +172,10 @@
     display: block;
     list-style: none;
     margin: 0.35em 0;
-    border: 1px solid var(--foldy-border-color);
+    border-style: var(--foldy-border-style, solid);
+    border-color: var(--foldy-border-color);
+    border-width: var(--foldy-border-top, 1px) var(--foldy-border-right, 1px)
+        var(--foldy-border-bottom, 1px) var(--foldy-border-left, 1px);
     border-radius: 8px;
     background: var(--foldy-background-color);
     overflow: visible;
@@ -298,6 +301,60 @@
     min-height: 2.4em;
 }
 
+/* 구분선: 항목과 같은 폭의 1px 회색 파선, 삭제 버튼은 hover 때 선 위에 겹친다. */
+#completion_prompt_manager #completion_prompt_manager_list .foldy-folder-items > li.foldy-divider {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 0.75em;
+    box-sizing: border-box;
+    margin: 0 0 0.35em;
+    padding: 0;
+    border: 0;
+    background: none;
+    list-style: none;
+}
+
+.foldy-divider-line {
+    position: absolute;
+    inset: 0;
+    cursor: grab;
+}
+
+.foldy-divider-line::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    margin: 0 5px;
+    border-top: 1px dashed color-mix(in srgb, var(--SmartThemeBodyColor) 40%, transparent);
+}
+
+.foldy-divider .foldy-divider-remove {
+    position: absolute;
+    top: 50%;
+    right: 0.4em;
+    display: none;
+    margin: 0;
+    padding: 0.15em 0.45em;
+    font-size: 0.75em;
+    transform: translateY(-50%);
+    background-color: var(--SmartThemeBlurTintColor);
+}
+
+/* 터치 기기는 탭을 hover로 남기므로, 모바일에서는 구분선 편집 창에서만 지운다. */
+@media (hover: hover) {
+    .foldy-divider:hover .foldy-divider-remove,
+    .foldy-divider:focus-within .foldy-divider-remove {
+        display: flex;
+    }
+}
+
+.foldy-move-form .foldy-create-items-list label.foldy-divider-pick.is-checked {
+    border-bottom: 1px dashed color-mix(in srgb, var(--SmartThemeBodyColor) 45%, transparent);
+}
+
 .foldy-folder.is-collapsed .foldy-folder-items {
     display: none;
 }
@@ -316,9 +373,9 @@
     padding-bottom: 0.4em;
 }
 
-.popup:has(.foldy-folder-settings-form) .popup-body,
 .popup:has(.foldy-folder-settings-form) .popup-content {
-    overflow: visible;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .foldy-move-form {
@@ -472,11 +529,90 @@
 }
 
 .foldy-edit-form label,
-.foldy-move-form label {
+.foldy-move-form label,
+.foldy-edit-form .foldy-setting-row {
     display: grid;
     grid-template-columns: 6.5em minmax(0, 1fr);
     align-items: center;
     gap: 0.75em;
+}
+
+.foldy-folder.foldy-partial-border {
+    border-radius: 0;
+}
+
+.foldy-setting-controls {
+    display: flex;
+    gap: 0.5em;
+    min-width: 0;
+}
+
+.foldy-edit-form .foldy-setting-controls select {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    margin: 0;
+}
+
+.foldy-edit-form .foldy-settings-divider {
+    margin: 0.1em 0;
+    border: 0;
+    border-top: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 14%, transparent);
+}
+
+/* 테마가 menu_button 배경·테두리를 !important로 지정해도 보조 버튼은 흐리게 보이게 한다. */
+.foldy-edit-form .foldy-color-reset,
+.popup:has(.foldy-folder-settings-form) .foldy-reset-all {
+    border-color: transparent !important;
+    background: transparent !important;
+    opacity: 0.6;
+}
+
+.foldy-edit-form .foldy-color-reset:hover,
+.popup:has(.foldy-folder-settings-form) .foldy-reset-all:hover {
+    opacity: 1;
+}
+
+/* 폴더 설정 창 하단: 모두 기본값은 왼쪽 끝, 취소·적용은 오른쪽이고 적용만 강조한다. */
+.popup:has(.foldy-folder-settings-form) .popup-controls {
+    align-self: stretch;
+    justify-content: flex-end;
+    gap: 0.5em;
+}
+
+.popup:has(.foldy-folder-settings-form) .foldy-reset-all {
+    order: 1;
+    margin-right: auto;
+}
+
+.popup:has(.foldy-folder-settings-form) .popup-button-cancel {
+    order: 2;
+}
+
+.popup:has(.foldy-folder-settings-form) .popup-button-ok {
+    order: 3;
+    font-weight: 600;
+    border-color: var(--SmartThemeQuoteColor) !important;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 18%, var(--SmartThemeBlurTintColor)) !important;
+}
+
+.foldy-border-sides {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4em;
+    min-width: 0;
+}
+
+.foldy-border-sides .foldy-border-side {
+    margin: 0;
+    min-width: max-content;
+    opacity: 0.55;
+}
+
+.foldy-border-sides .foldy-border-side.is-on {
+    opacity: 1;
+    border-color: var(--SmartThemeQuoteColor);
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 22%, transparent);
 }
 
 /* 위치 설명을 선택 상자 아래에 붙인다. */
@@ -511,7 +647,8 @@
 }
 
 .foldy-edit-form label > span:first-child,
-.foldy-move-form label > span:first-child {
+.foldy-move-form label > span:first-child,
+.foldy-edit-form .foldy-setting-row > span:first-child {
     color: var(--SmartThemeBodyColor);
     opacity: 0.9;
 }
@@ -576,9 +713,13 @@
 }
 
 .foldy-color-controls toolcool-color-picker {
-    width: 2.8em;
-    height: 2.15em;
+    display: block;
+    line-height: 0;
     flex: 0 0 auto;
+    /* 그림자 DOM 안의 견본 모서리를 입력칸과 맞춘다. */
+    --tool-cool-color-picker-btn-border-radius: 6px;
+    --tool-cool-color-picker-btn-border-radius-inner: 6px;
+    --tool-cool-color-picker-btn-border-color-inner: color-mix(in srgb, var(--SmartThemeBodyColor) 35%, transparent);
 }
 
 .foldy-color-reset {
@@ -831,7 +972,8 @@ button[hidden].foldy-lore-collapse-all {
     }
 
     .foldy-edit-form label,
-    .foldy-move-form label {
+    .foldy-move-form label,
+    .foldy-edit-form .foldy-setting-row {
         grid-template-columns: 1fr;
         gap: 0.35em;
         min-width: 0;
@@ -1096,4 +1238,81 @@ button[hidden].foldy-lore-collapse-all {
         display: inline-flex !important;
     }
 
+}
+
+/* 로어북 홈 화면 */
+#world_popup.foldy-book-home :is(#world_popup_new, #OpenAllWIEntries, #CloseAllWIEntries,
+    #world_backfill_memos, #world_apply_current_sorting, #world_info_sort_order,
+    .foldy-lore-create, .foldy-lore-bundle, .foldy-lore-expand-all, .foldy-lore-collapse-all,
+    #foldy_lore_root_bulk_move) {
+    display: none !important;
+}
+
+#foldy_book_home[hidden],
+button[hidden].foldy-book-tool,
+button[hidden].foldy-book-go-home {
+    display: none !important;
+}
+
+.foldy-book-tool,
+.foldy-book-go-home {
+    font-size: inherit;
+    line-height: normal;
+    white-space: nowrap;
+}
+
+#foldy_book_home {
+    display: flex;
+    flex-direction: column;
+    margin: 0.35em 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.foldy-book-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    min-height: 2.2em;
+    padding: 0.25em 0.55em;
+    border-radius: 6px;
+    list-style: none;
+    cursor: pointer;
+}
+
+.foldy-book-row:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+}
+
+.foldy-book-row.is-last-opened {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 14%, transparent);
+}
+
+.foldy-book-row > .drag-handle {
+    cursor: grab;
+    opacity: 0.6;
+    flex: 0 0 auto;
+}
+
+.foldy-book-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.foldy-book-row.is-active .foldy-book-name {
+    color: var(--SmartThemeQuoteColor);
+    font-weight: 700;
+}
+
+.foldy-book-items:empty {
+    min-height: 2.4em;
+}
+
+.ui-sortable-helper.foldy-book-row {
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 10000;
 }

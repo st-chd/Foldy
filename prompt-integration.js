@@ -1,11 +1,13 @@
 import {
     closeOpenFolderMenus,
+    renderFolderDividers,
     updateFolderCount,
 } from './folder-ui.js';
 import { createPromptBundleActions, createPromptSortables, promptOrderIds } from './prompt-bundles.js';
 import {
     layoutFollowingExternalOrder,
     layoutWithAddedFolder,
+    layoutWithFolderDividers,
     layoutWithItemsMovedToFolder,
     layoutWithMovedFolder,
     layoutWithUpdatedFolder,
@@ -163,6 +165,7 @@ export function createPromptIntegration({
     requestFolderSettings,
     confirmFolderDelete,
     requestFlexibleBulkMove,
+    requestFolderDividers,
     requestNewFolder,
     attachMoveToFolderButton,
     createFolderElement,
@@ -358,6 +361,29 @@ export function createPromptIntegration({
                     await persistPromptLayout(owner, result.layout, manager);
                     rerender();
                 },
+                itemIdFromElement: item => item.dataset?.pmIdentifier,
+                onDividersChange: async (folderId, dividers) => {
+                    const activeLayout = currentPromptLayout;
+                    if (rerenderIfPromptContextChanged(activeLayout)) return;
+                    const result = layoutWithFolderDividers(activeLayout, folderId, dividers);
+                    if (result.changed) await persistPromptLayout(owner, result.layout, manager);
+                    rerender();
+                },
+                onEditDividers: async id => {
+                    const activeLayout = currentPromptLayout;
+                    const target = activeLayout.folders.find(value => value.id === id);
+                    const labels = new Map([...itemMap.entries()].map(([itemId, element]) => [
+                        String(itemId),
+                        element.querySelector('.completion_prompt_manager_prompt_name')?.textContent?.trim() || String(itemId),
+                    ]));
+                    const dividers = await requestFolderDividers(target, labels);
+                    if (!dividers) return;
+                    if (rerenderIfPromptContextChanged(activeLayout)) return;
+                    const result = layoutWithFolderDividers(activeLayout, id, dividers);
+                    if (!result.changed) return;
+                    await persistPromptLayout(owner, result.layout, manager);
+                    rerender();
+                },
             });
             const items = folderElement.querySelector('.foldy-folder-items');
             folder.items.forEach(id => {
@@ -380,6 +406,7 @@ export function createPromptIntegration({
                     items.append(item);
                 }
             });
+            renderFolderDividers(folderElement, folder);
             updateFolderCount(folderElement, {
                 itemIdFromElement: item => item.dataset.pmIdentifier,
                 isItemEnabled: id => promptEnabledById.get(String(id)) === true,

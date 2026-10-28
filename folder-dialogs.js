@@ -1,5 +1,7 @@
-import { bindAction, createColorSetting, createIconButton, createSelectionToolbar, appendSelectionRow, themeColorHex } from './folder-ui.js';
+import { bindAction, createBorderSidesSetting, createColorSetting, createIconButton, createSelectSetting, createSelectionToolbar, createSettingRow, appendSelectionRow, themeColorHex } from './folder-ui.js';
+import { BORDER_WIDTHS, folderBorder } from './folder-style.js';
 import {
+    foldersInDisplayOrder,
     hasDuplicateFolderName,
     layoutWithItemMovedToFolder,
     rootItemIds,
@@ -353,29 +355,50 @@ export function createFolderDialogs({
         });
 
         const backgroundColor = createColorSetting('\uBC30\uACBD\uC0C9', folder.color, themeColorHex('--SmartThemeBlurTintColor'));
-        const borderColor = createColorSetting('\uD14C\uB450\uB9AC\uC0C9', folder.borderColor, themeColorHex('--SmartThemeBorderColor'));
         const nameColor = createColorSetting('\uC774\uB984 \uC0C9\uC0C1', folder.nameColor, themeColorHex('--SmartThemeBodyColor', '#ffffff'));
+        const borderColor = createColorSetting('\uD14C\uB450\uB9AC', folder.borderColor, themeColorHex('--SmartThemeBorderColor'));
+        const border = folderBorder(folder);
+        const borderWidth = createSelectSetting([
+            ['', '\uAE30\uBCF8\uAC12'],
+            ...BORDER_WIDTHS.map(width => [width, `${width}px`]),
+        ], border.width);
+        const borderStyle = createSelectSetting([
+            ['', '\uC2E4\uC120'],
+            ['dashed', '\uD30C\uC120'],
+            ['dotted', '\uC810\uC120'],
+            ['double', '\uC774\uC911\uC120'],
+        ], border.style === 'solid' ? '' : border.style);
+        const borderSides = createBorderSidesSetting('\uBC29\uD5A5', border.sides);
+        const designSettings = [backgroundColor, nameColor, borderColor, borderWidth, borderStyle, borderSides];
+        // \uAD6C\uBD84\uC120\uC73C\uB85C\uB9CC \uBB36\uC74C\uC744 \uB098\uB208\uB2E4.
+        const divider = () => Object.assign(document.createElement('hr'), { className: 'foldy-settings-divider' });
 
         const applyAllField = document.createElement('label');
         applyAllField.className = 'checkbox flex-container foldy-apply-style-all';
         const applyAllCheckbox = document.createElement('input');
         applyAllCheckbox.type = 'checkbox';
         const applyAllText = document.createElement('span');
-        applyAllText.textContent = '\uB2E4\uB978 \uD3F4\uB354\uC5D0\uB3C4 \uC0C9\uC0C1 \uC801\uC6A9';
+        applyAllText.textContent = '\uB2E4\uB978 \uD3F4\uB354\uC5D0\uB3C4 \uB514\uC790\uC778 \uC801\uC6A9';
         applyAllField.append(applyAllCheckbox, applyAllText);
 
         form.append(title, nameField);
         if (position) form.append(position.field);
-        form.append(backgroundColor.field, borderColor.field, nameColor.field, applyAllField);
+        form.append(
+            divider(), backgroundColor.field, nameColor.field,
+            divider(), borderColor.field, createSettingRow('\uC120', borderWidth.select, borderStyle.select), borderSides.field,
+            divider(), applyAllField,
+        );
 
         const popup = new Popup(form, POPUP_TYPE.CONFIRM, '', {
             okButton: '\uC801\uC6A9',
             cancelButton: '\uCDE8\uC18C',
             customButtons: [{
-                text: '\uAE30\uBCF8\uAC12',
-                tooltip: '\uBAA8\uB4E0 \uC0C9\uC0C1\uC744 \uD14C\uB9C8 \uAE30\uBCF8\uAC12\uC73C\uB85C \uB418\uB3CC\uB9AC\uAE30',
-                action: () => [backgroundColor, borderColor, nameColor].forEach(setting => setting.reset()),
+                text: '\uBAA8\uB450 \uAE30\uBCF8\uAC12',
+                classes: ['foldy-reset-all'],
+                tooltip: '\uBAA8\uB4E0 \uB514\uC790\uC778\uC744 \uAE30\uBCF8\uAC12\uC73C\uB85C \uB418\uB3CC\uB9AC\uAE30',
+                action: () => designSettings.forEach(setting => setting.reset()),
             }],
+            onOpen: () => [backgroundColor, nameColor, borderColor].forEach(setting => setting.fitSwatch()),
             onClosing: value => {
                 if (value.result !== POPUP_RESULT.AFFIRMATIVE) return true;
                 const name = nameInput.value.trim();
@@ -402,6 +425,9 @@ export function createFolderDialogs({
             color: backgroundColor.value(),
             borderColor: borderColor.value(),
             nameColor: nameColor.value(),
+            borderWidth: borderWidth.value(),
+            borderStyle: borderStyle.value(),
+            borderSides: borderSides.value(),
             applyStyleToAll: applyAllCheckbox.checked,
             afterKey: position?.select.value || '',
         };
@@ -432,7 +458,7 @@ export function createFolderDialogs({
         rootOption.value = '';
         rootOption.textContent = '\uCD5C\uC0C1\uC704 (\uD3F4\uB354 \uC5C6\uC74C)';
         select.append(rootOption);
-        for (const folder of layout.folders) {
+        for (const folder of foldersInDisplayOrder(layout)) {
             const option = document.createElement('option');
             option.value = folder.id;
             option.textContent = truncateOptionLabel(folder.name);
@@ -456,7 +482,7 @@ export function createFolderDialogs({
         const rootSource = { id: '', name: '\uBBF8\uBD84\uB958', items: rootItemIds(layout) };
         const sources = [
             rootSource,
-            ...layout.folders.map(folder => ({ id: String(folder.id), name: folder.name, items: folder.items || [] })),
+            ...foldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name, items: folder.items || [] })),
         ];
         const requestedSource = sources.find(source => source.id === requestedSourceId);
         const firstFilledSource = sources.find(source => source.items.length && source.id !== requestedSourceId);
@@ -511,7 +537,7 @@ export function createFolderDialogs({
             targetSelect.innerHTML = '';
             const targetOptions = [
                 { id: '', name: '\uBBF8\uBD84\uB958' },
-                ...layout.folders.map(folder => ({ id: String(folder.id), name: folder.name })),
+                ...foldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name })),
             ].filter(target => target.id !== currentSourceId);
             for (const target of targetOptions) {
                 const option = document.createElement('option');
@@ -565,6 +591,51 @@ export function createFolderDialogs({
                 .map(input => String(input.value)),
             targetFolderId: targetSelect.value,
         };
+    }
+
+    // 체크한 항목 아래에 구분선을 둔다. 맨 위 구분선은 있을 때만 줄을 보여 해제할 수 있게 한다.
+    async function requestFolderDividers(folder, labelById = new Map()) {
+        if (!folder?.items?.length) {
+            toastr.info('폴더에 항목이 없습니다.');
+            return null;
+        }
+        const current = new Set((folder.dividers || []).map(String));
+
+        const form = document.createElement('div');
+        form.className = 'foldy-move-form foldy-divider-form';
+        const title = document.createElement('div');
+        title.className = 'foldy-edit-title';
+        title.textContent = '[구분선] ' + folder.name;
+        const itemGroup = document.createElement('div');
+        itemGroup.className = 'foldy-create-items';
+        const list = document.createElement('div');
+        list.className = 'foldy-create-items-list';
+        const ids = [...(current.has('') ? [''] : []), ...folder.items.map(String)];
+        for (const id of ids) {
+            const label = document.createElement('label');
+            label.className = 'checkbox flex-container foldy-divider-pick';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = id;
+            checkbox.checked = current.has(id);
+            label.classList.toggle('is-checked', checkbox.checked);
+            checkbox.addEventListener('input', () => label.classList.toggle('is-checked', checkbox.checked));
+            const text = document.createElement('span');
+            text.textContent = id ? (labelById.get(id) || id) : '맨 위';
+            text.title = text.textContent;
+            appendSelectionRow(label, checkbox, text);
+            list.append(label);
+        }
+        itemGroup.append(list);
+        form.append(title, itemGroup);
+
+        const result = await new Popup(form, POPUP_TYPE.CONFIRM, '', {
+            okButton: '저장',
+            cancelButton: '취소',
+        }).show();
+        if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
+        const checked = [...list.querySelectorAll('input[type="checkbox"]:checked')].map(input => String(input.value));
+        return checked;
     }
 
     function createRootBulkMoveButton(onClick) {
@@ -635,6 +706,7 @@ export function createFolderDialogs({
         requestFolderSettings,
         requestMoveTarget,
         requestFlexibleBulkMove,
+        requestFolderDividers,
         createRootBulkMoveButton,
         attachMoveToFolderButton,
     };
