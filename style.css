@@ -377,9 +377,9 @@
     padding-bottom: 0.4em;
 }
 
-.popup:has(.foldy-folder-settings-form) .popup-body,
 .popup:has(.foldy-folder-settings-form) .popup-content {
-    overflow: visible;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .foldy-move-form {
