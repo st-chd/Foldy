@@ -93,8 +93,20 @@ export function closeOpenFolderMenus(root = document) {
 
 const FOLDY_MOBILE_MENU_QUERY = '(max-width: 700px)';
 
+// 메뉴는 화면 폭으로, 구분선 끌기는 주 입력이 손가락인지로 판단한다.
+// 데스크톱 UA를 보내는 아이패드도 손가락 입력으로 잡힌다.
+const FOLDY_TOUCH_INPUT_QUERY = '(pointer: coarse)';
+
+function matchesFoldyMedia(query) {
+    return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches;
+}
+
+function canDragDividers() {
+    return !matchesFoldyMedia(FOLDY_TOUCH_INPUT_QUERY);
+}
+
 function isFoldyMobileMenuActive() {
-    return typeof window.matchMedia === 'function' && window.matchMedia(FOLDY_MOBILE_MENU_QUERY).matches;
+    return matchesFoldyMedia(FOLDY_MOBILE_MENU_QUERY);
 }
 
 function stopPortaledMenuPointerPropagation(event) {
@@ -373,13 +385,13 @@ export function createBorderSidesSetting(labelText, initialSides) {
     };
 }
 
-// 모바일은 스크롤하다 구분선이 끌려가므로 drag-handle을 붙이지 않는다. 위치는 구분선 편집 창에서 바꾼다.
-function createDividerElement(kind, onRemove, withErrorToast, draggable = true) {
+// 손가락 입력에서는 스크롤하다 구분선이 끌려가므로 drag-handle을 붙이지 않는다. 위치는 구분선 편집 창에서 바꾼다.
+function createDividerElement(kind, onRemove, withErrorToast) {
     const element = document.createElement(kind === 'regex' ? 'div' : 'li');
     element.className = 'foldy-divider';
     const line = document.createElement('span');
     line.className = 'foldy-divider-line';
-    if (draggable) {
+    if (canDragDividers()) {
         line.classList.add('drag-handle');
         line.title = '구분선 이동';
     }
@@ -412,7 +424,7 @@ export function renderFolderDividers(folderElement, folder) {
         return options.onDividersChange(folder.id, dividersFromFolderElement(folderElement) ?? []);
     };
     for (const anchor of folder.dividers || []) {
-        const divider = createDividerElement(options.kind, onRemove, options.withErrorToast, options.draggableDividers);
+        const divider = createDividerElement(options.kind, onRemove, options.withErrorToast);
         if (!anchor) items.prepend(divider);
         else rendered.get(anchor)?.after(divider);
     }
@@ -458,7 +470,6 @@ export function createFolderElement(folder, {
     itemIdFromElement = null,
     onDividersChange = null,
     onEditDividers = null,
-    draggableDividers = true,
     ownerCollapsed,
     saveCollapsed,
     withErrorToast,
@@ -621,7 +632,7 @@ export function createFolderElement(folder, {
         actions.append(bulkMove);
     }
     if (onDividersChange && itemIdFromElement) {
-        element.__foldyDividerOptions = { kind, itemIdFromElement, onDividersChange, withErrorToast, draggableDividers };
+        element.__foldyDividerOptions = { kind, itemIdFromElement, onDividersChange, withErrorToast };
         if (onEditDividers) actions.append(addDivider);
     }
     actions.append(edit, remove);
