@@ -593,7 +593,7 @@ export function createFolderDialogs({
         };
     }
 
-    // 체크한 항목 아래에 구분선을 둔다. 맨 위 구분선은 있을 때만 줄을 보여 해제할 수 있게 한다.
+    // 체크한 항목 아래에 구분선을 둔다. 끌기가 막힌 기기에서도 맨 위 구분선을 만들 수 있게 '맨 위' 줄을 항상 보인다.
     async function requestFolderDividers(folder, labelById = new Map()) {
         if (!folder?.items?.length) {
             toastr.info('폴더에 항목이 없습니다.');
@@ -610,7 +610,7 @@ export function createFolderDialogs({
         itemGroup.className = 'foldy-create-items';
         const list = document.createElement('div');
         list.className = 'foldy-create-items-list';
-        const ids = [...(current.has('') ? [''] : []), ...folder.items.map(String)];
+        const ids = ['', ...folder.items.map(String)];
         for (const id of ids) {
             const label = document.createElement('label');
             label.className = 'checkbox flex-container foldy-divider-pick';

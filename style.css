@@ -318,6 +318,9 @@
 .foldy-divider-line {
     position: absolute;
     inset: 0;
+}
+
+.foldy-divider-line.drag-handle {
     cursor: grab;
 }
 
