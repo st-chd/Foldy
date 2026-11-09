@@ -5,6 +5,7 @@ import { Popup, POPUP_RESULT, POPUP_TYPE } from '../../../popup.js';
 import { getPresetManager } from '../../../preset-manager.js';
 import { renderTemplateAsync } from '../../../templates.js';
 import { getSortableDelay, waitUntilCondition } from '../../../utils.js';
+import { isMobile } from '../../../RossAscends-mods.js';
 import { accountStorage } from '../../../util/AccountStorage.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { SlashCommandNamedArgument, ARGUMENT_TYPE } from '../../../slash-commands/SlashCommandArgument.js';
@@ -727,6 +728,7 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
         itemIdFromElement,
         onDividersChange,
         onEditDividers,
+        draggableDividers: !isMobile(),
         ownerCollapsed,
         saveCollapsed,
         withErrorToast,

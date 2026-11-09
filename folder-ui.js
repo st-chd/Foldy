@@ -373,12 +373,16 @@ export function createBorderSidesSetting(labelText, initialSides) {
     };
 }
 
-function createDividerElement(kind, onRemove, withErrorToast) {
+// 모바일은 스크롤하다 구분선이 끌려가므로 drag-handle을 붙이지 않는다. 위치는 구분선 편집 창에서 바꾼다.
+function createDividerElement(kind, onRemove, withErrorToast, draggable = true) {
     const element = document.createElement(kind === 'regex' ? 'div' : 'li');
     element.className = 'foldy-divider';
     const line = document.createElement('span');
-    line.className = 'foldy-divider-line drag-handle';
-    line.title = '구분선 이동';
+    line.className = 'foldy-divider-line';
+    if (draggable) {
+        line.classList.add('drag-handle');
+        line.title = '구분선 이동';
+    }
     const remove = createIconButton('fa-xmark', '구분선 삭제', 'foldy-divider-remove');
     remove.addEventListener('click', event => {
         event.preventDefault();
@@ -408,7 +412,7 @@ export function renderFolderDividers(folderElement, folder) {
         return options.onDividersChange(folder.id, dividersFromFolderElement(folderElement) ?? []);
     };
     for (const anchor of folder.dividers || []) {
-        const divider = createDividerElement(options.kind, onRemove, options.withErrorToast);
+        const divider = createDividerElement(options.kind, onRemove, options.withErrorToast, options.draggableDividers);
         if (!anchor) items.prepend(divider);
         else rendered.get(anchor)?.after(divider);
     }
@@ -454,6 +458,7 @@ export function createFolderElement(folder, {
     itemIdFromElement = null,
     onDividersChange = null,
     onEditDividers = null,
+    draggableDividers = true,
     ownerCollapsed,
     saveCollapsed,
     withErrorToast,
@@ -616,7 +621,7 @@ export function createFolderElement(folder, {
         actions.append(bulkMove);
     }
     if (onDividersChange && itemIdFromElement) {
-        element.__foldyDividerOptions = { kind, itemIdFromElement, onDividersChange, withErrorToast };
+        element.__foldyDividerOptions = { kind, itemIdFromElement, onDividersChange, withErrorToast, draggableDividers };
         if (onEditDividers) actions.append(addDivider);
     }
     actions.append(edit, remove);
