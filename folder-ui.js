@@ -386,8 +386,8 @@ export function createBorderSidesSetting(labelText, initialSides) {
 }
 
 // 손가락 입력에서는 스크롤하다 구분선이 끌려가므로 drag-handle을 붙이지 않는다. 위치는 구분선 편집 창에서 바꾼다.
-function createDividerElement(kind, onRemove, withErrorToast) {
-    const element = document.createElement(kind === 'regex' ? 'div' : 'li');
+function createDividerElement(onRemove, withErrorToast) {
+    const element = document.createElement('li');
     element.className = 'foldy-divider';
     const line = document.createElement('span');
     line.className = 'foldy-divider-line';
@@ -424,7 +424,7 @@ export function renderFolderDividers(folderElement, folder) {
         return options.onDividersChange(folder.id, dividersFromFolderElement(folderElement) ?? []);
     };
     for (const anchor of folder.dividers || []) {
-        const divider = createDividerElement(options.kind, onRemove, options.withErrorToast);
+        const divider = createDividerElement(onRemove, options.withErrorToast);
         if (!anchor) items.prepend(divider);
         else rendered.get(anchor)?.after(divider);
     }
@@ -632,7 +632,7 @@ export function createFolderElement(folder, {
         actions.append(bulkMove);
     }
     if (onDividersChange && itemIdFromElement) {
-        element.__foldyDividerOptions = { kind, itemIdFromElement, onDividersChange, withErrorToast };
+        element.__foldyDividerOptions = { itemIdFromElement, onDividersChange, withErrorToast };
         if (onEditDividers) actions.append(addDivider);
     }
     actions.append(edit, remove);
