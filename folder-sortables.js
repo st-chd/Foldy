@@ -71,6 +71,7 @@ export function setupFolderSortables({
     let lastFolderInsertBefore = null;
     let draggingItemIntoFolder = false;
     let draggingFolderId = null;
+    let activePlaceholder = null;
 
     const clearDropState = () => {
         lastPointer = null;
@@ -80,7 +81,10 @@ export function setupFolderSortables({
         draggingFolderId = null;
         list.classList.remove('foldy-dropping-into-folder');
         list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
-        list.querySelectorAll('.foldy-drop-placeholder').forEach(element => element.remove());
+        // 진행 중인 드래그의 placeholder를 지우면 jQuery UI가 드롭을 마무리하지 못한다.
+        list.querySelectorAll('.foldy-drop-placeholder').forEach(element => {
+            if (element !== activePlaceholder) element.remove();
+        });
     };
 
     // jQuery UI의 placeholder 재배치보다 늦지 않게 동기적으로 판정한다.
@@ -154,6 +158,7 @@ export function setupFolderSortables({
     };
 
     const start = (_, ui) => {
+        activePlaceholder = ui.placeholder?.[0] ?? null;
         clearDropState();
         const item = ui.item?.[0];
         setSorting(true);
