@@ -831,6 +831,21 @@ button[hidden].foldy-lore-collapse-all {
     margin: 0 0 0.35em;
 }
 
+/* 잠긴 항목은 손잡이를 숨기되 다른 줄과 이름 위치를 맞춘다. */
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt.foldy-locked-item {
+    position: relative;
+    padding-left: 20px;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .foldy-locked-handle {
+    display: none;
+}
+
+.foldy-folder-header .foldy-lock-mark {
+    cursor: default;
+    opacity: 0.6;
+}
+
 #completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .completion_prompt_manager_prompt_name {
     min-width: 0;
 }

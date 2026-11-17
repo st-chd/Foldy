@@ -150,10 +150,11 @@ export function createPromptSortables({
         setupFolderSortables({
             list,
             nestedItemsSelector: '.foldy-prompt-items',
-            rootSortableItems: '> .completion_prompt_manager_prompt_draggable, > .foldy-folder',
-            nestedSortableItems: '> .completion_prompt_manager_prompt_draggable, > .foldy-divider',
-            connectWith: '#completion_prompt_manager_list, .foldy-prompt-items',
-            folderHitSelector: '.foldy-prompt-folder',
+            // 잠긴 폴더는 끌 수 없고, 다른 항목을 받지도 않는다.
+            rootSortableItems: '> .completion_prompt_manager_prompt_draggable, > .foldy-folder:not(.is-locked)',
+            nestedSortableItems: '> .completion_prompt_manager_prompt_draggable:not(.foldy-locked-item), > .foldy-divider',
+            connectWith: '#completion_prompt_manager_list, .foldy-prompt-folder:not(.is-locked) > .foldy-prompt-items',
+            folderHitSelector: '.foldy-prompt-folder:not(.is-locked)',
             folderItemsSelector: '.foldy-prompt-items',
             isItemElement: item => item?.classList?.contains('completion_prompt_manager_prompt_draggable') ?? false,
             itemIdFromElement: item => item?.dataset?.pmIdentifier,

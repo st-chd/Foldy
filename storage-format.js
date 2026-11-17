@@ -49,6 +49,8 @@ function canonicalLayout(layout, collapsedIds) {
                 const { id: _id, ...rest } = folder;
                 for (const [key] of STYLE_KEYS) if (rest[key] === '' || rest[key] === undefined) delete rest[key];
                 if (Array.isArray(rest.dividers) && !rest.dividers.length) delete rest.dividers;
+                // 압축 형식은 locked === true만 저장하므로 비교 값도 같은 기준으로 맞춘다.
+                if (rest.locked !== true) delete rest.locked;
                 return { ...rest, collapsed: collapsed.has(String(folder.id)) };
             })
             : layout.folders ?? null,
@@ -68,6 +70,7 @@ function encodeLayoutUnchecked(layout, collapsedIds) {
             for (const [key, short] of STYLE_KEYS) if (folder[key]) encoded[short] = folder[key];
             if (collapsed.has(String(folder.id))) encoded.x = 1;
             if (folder.dividers?.length) encoded.d = folder.dividers.map(String);
+            if (folder.locked === true) encoded.l = 1;
             return encoded;
         }),
     };
@@ -90,6 +93,7 @@ export function decodeLayout(encoded) {
         };
         for (const [key, short] of BORDER_KEYS) if (typeof folder[short] === 'string' && folder[short]) decoded[key] = folder[short];
         if (Array.isArray(folder.d) && folder.d.length) decoded.dividers = folder.d.map(String);
+        if (folder.l === 1) decoded.locked = true;
         return decoded;
     });
     const root = splitIds(source.r).flatMap(entry => {

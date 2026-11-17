@@ -3,6 +3,7 @@ import { BORDER_WIDTHS, folderBorder } from './folder-style.js';
 import {
     foldersInDisplayOrder,
     hasDuplicateFolderName,
+    isFolderLocked,
     layoutWithItemMovedToFolder,
     rootItemIds,
     rootNodeKey,
@@ -117,6 +118,11 @@ function currentAnchorKeyForFolder(layout, folderId) {
     const index = layout.root.findIndex(node => node.type === 'folder' && node.id === folderId);
     if (index <= 0) return '';
     return rootNodeKey(layout.root[index - 1]);
+}
+
+// 잠긴 폴더는 항목을 넣거나 뺄 수 없으므로 이동 창에 보이지 않는다.
+function openFoldersInDisplayOrder(layout) {
+    return foldersInDisplayOrder(layout).filter(folder => !isFolderLocked(folder));
 }
 
 function labelMapFromCandidates(candidates) {
@@ -458,7 +464,7 @@ export function createFolderDialogs({
         rootOption.value = '';
         rootOption.textContent = '\uCD5C\uC0C1\uC704 (\uD3F4\uB354 \uC5C6\uC74C)';
         select.append(rootOption);
-        for (const folder of foldersInDisplayOrder(layout)) {
+        for (const folder of openFoldersInDisplayOrder(layout)) {
             const option = document.createElement('option');
             option.value = folder.id;
             option.textContent = truncateOptionLabel(folder.name);
@@ -482,7 +488,7 @@ export function createFolderDialogs({
         const rootSource = { id: '', name: '\uBBF8\uBD84\uB958', items: rootItemIds(layout) };
         const sources = [
             rootSource,
-            ...foldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name, items: folder.items || [] })),
+            ...openFoldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name, items: folder.items || [] })),
         ];
         const requestedSource = sources.find(source => source.id === requestedSourceId);
         const firstFilledSource = sources.find(source => source.items.length && source.id !== requestedSourceId);
@@ -537,7 +543,7 @@ export function createFolderDialogs({
             targetSelect.innerHTML = '';
             const targetOptions = [
                 { id: '', name: '\uBBF8\uBD84\uB958' },
-                ...foldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name })),
+                ...openFoldersInDisplayOrder(layout).map(folder => ({ id: String(folder.id), name: folder.name })),
             ].filter(target => target.id !== currentSourceId);
             for (const target of targetOptions) {
                 const option = document.createElement('option');
@@ -684,7 +690,7 @@ export function createFolderDialogs({
             return;
         }
 
-        if (!layout.folders.length) return;
+        if (!openFoldersInDisplayOrder(layout).length) return;
         const button = createMoveToFolderButton(kind, layout, itemId, onMove);
 
         if (kind === 'prompt') {

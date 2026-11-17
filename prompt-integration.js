@@ -5,9 +5,11 @@ import {
 } from './folder-ui.js';
 import { createPromptBundleActions, createPromptSortables, promptOrderIds } from './prompt-bundles.js';
 import {
+    isFolderLocked,
     layoutFollowingExternalOrder,
     layoutWithAddedFolder,
     layoutWithFolderDividers,
+    layoutWithFolderLocked,
     layoutWithItemsMovedToFolder,
     layoutWithMovedFolder,
     layoutWithUpdatedFolder,
@@ -23,6 +25,18 @@ export function reconcilePromptOrder(layout, manager) {
     const reordered = orderItemsByLayout(freshLayout, order, entry => entry?.identifier);
     order.splice(0, order.length, ...reordered);
     return freshLayout;
+}
+
+// 잠긴 폴더의 프롬프트는 끌기·연결 해제·편집·토글을 빈 칸으로 바꾸고 토큰 수만 남긴다.
+function lockPromptItem(item) {
+    item.classList.add('foldy-locked-item');
+    item.querySelector(':scope > .drag-handle')?.classList.replace('drag-handle', 'foldy-locked-handle');
+    item.querySelectorAll('.prompt-manager-detach-action, .prompt-manager-edit-action, .prompt-manager-toggle-action')
+        .forEach(control => {
+            const blank = document.createElement('span');
+            blank.className = 'fa-solid';
+            control.replaceWith(blank);
+        });
 }
 
 function setPromptToolbarSummary(toolbar, layout, visibleItemIds = null) {
@@ -53,6 +67,7 @@ function createPromptInstaller({
     saveSettingsDebounced,
     debugLog,
     restorePromptLayoutOrder,
+    followExternalPromptOrder,
     enhancePromptList,
     setupPromptSortables,
 }) {
@@ -117,7 +132,8 @@ function createPromptInstaller({
             }
             return result;
         };
-        restorePromptLayoutOrder();
+        // 확장을 다시 켠 경우처럼, 꺼져 있던 동안 바뀐 순서는 저장된 배치로 되돌리지 않는다.
+        followExternalPromptOrder();
         manager.render(false);
     }
 
@@ -194,6 +210,29 @@ export function createPromptIntegration({
         currentPromptOwner = owner;
     }
 
+    function layoutFollowingPromptOrder(storedLayout, manager) {
+        return layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
+            onSkip: detail => debugLog('외부에서 바뀐 프롬프트 순서를 따라가지 않았습니다.', detail),
+        });
+    }
+
+    // 프리셋 전환이 아니라 Foldy가 꺼져 있다가 처음 보는 순서라면 그 순서를 따른다.
+    function followExternalPromptOrder(manager = promptManager) {
+        if (!manager?.activeCharacter || !featureEnabled('prompts') || !promptContextReady()) return;
+        if (currentPromptOwner === promptOwnerKey()) return;
+        manager.sanitizeServiceSettings?.();
+        const { owner, hasStoredLayout, layout: storedLayout } = readPromptLayout(manager);
+        const layout = layoutFollowingPromptOrder(storedLayout, manager);
+        if (hasStoredLayout) {
+            if (layout !== storedLayout) settings().layouts.prompts[owner] = layout;
+            // 따라가지 못한 순서만 저장된 배치에 맞춘다.
+            reconcilePromptOrder(layout, manager);
+            saveSettingsDebounced();
+        }
+        currentPromptLayout = layout;
+        currentPromptOwner = owner;
+    }
+
     async function persistPromptLayout(owner, layout, manager = promptManager) {
         if (!promptContextReady() || owner !== promptOwnerKey()) {
             throw new Error('프리셋이 변경되어 이전 폴더 배치를 저장하지 않았습니다.');
@@ -247,9 +286,7 @@ export function createPromptIntegration({
         const { owner, hasStoredLayout, layout: storedLayout } = readPromptLayout(manager);
         // 프리셋을 다시 불러올 때의 평면 순서는 저장된 폴더 배치를 덮어쓰는 외부 드래그가 아니다.
         const activated = owner !== currentPromptOwner;
-        const layout = activated ? storedLayout : layoutFollowingExternalOrder(storedLayout, promptOrderIds(manager), {
-            onSkip: detail => debugLog('외부에서 바뀐 프롬프트 순서를 따라가지 않았습니다.', detail),
-        });
+        const layout = activated ? storedLayout : layoutFollowingPromptOrder(storedLayout, manager);
         // 저장값이 없는 기본 배치는 화면에서만 계산해 초기화 직후 root가 다시 생기지 않게 한다.
         if (hasStoredLayout && layout !== storedLayout) {
             settings().layouts.prompts[owner] = layout;
@@ -369,6 +406,14 @@ export function createPromptIntegration({
                     if (result.changed) await persistPromptLayout(owner, result.layout, manager);
                     rerender();
                 },
+                onLockToggle: async (id, locked) => {
+                    const activeLayout = currentPromptLayout;
+                    if (rerenderIfPromptContextChanged(activeLayout)) return;
+                    const result = layoutWithFolderLocked(activeLayout, id, locked);
+                    if (!result.changed) return;
+                    await persistPromptLayout(owner, result.layout, manager);
+                    rerender();
+                },
                 onEditDividers: async id => {
                     const activeLayout = currentPromptLayout;
                     const target = activeLayout.folders.find(value => value.id === id);
@@ -388,7 +433,10 @@ export function createPromptIntegration({
             const items = folderElement.querySelector('.foldy-folder-items');
             folder.items.forEach(id => {
                 const item = itemMap.get(id);
-                if (item) {
+                if (item && isFolderLocked(folder)) {
+                    lockPromptItem(item);
+                    items.append(item);
+                } else if (item) {
                     attachMoveToFolderButton(item, {
                         kind: 'prompt',
                         layout: currentPromptLayout,
@@ -466,6 +514,7 @@ export function createPromptIntegration({
         saveSettingsDebounced,
         debugLog,
         restorePromptLayoutOrder,
+        followExternalPromptOrder,
         enhancePromptList,
         setupPromptSortables,
     });
@@ -477,6 +526,7 @@ export function createPromptIntegration({
         readPromptLayout,
         persistPromptLayout,
         restorePromptLayoutOrder: () => restorePromptLayoutOrder(promptManager, true),
+        followExternalPromptOrder: () => followExternalPromptOrder(promptManager),
         invalidatePromptLayout: () => { currentPromptOwner = null; },
     };
 }

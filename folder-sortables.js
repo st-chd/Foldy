@@ -71,6 +71,10 @@ export function setupFolderSortables({
     let lastFolderInsertBefore = null;
     let draggingItemIntoFolder = false;
     let draggingFolderId = null;
+    let activePlaceholder = null;
+    // 저장을 기다리는 동안 다음 드래그가 시작될 수 있어 드래그마다 번호를 매기고 마무리를 차례로 처리한다.
+    let dragToken = 0;
+    let finishing = Promise.resolve();
 
     const clearDropState = () => {
         lastPointer = null;
@@ -80,7 +84,10 @@ export function setupFolderSortables({
         draggingFolderId = null;
         list.classList.remove('foldy-dropping-into-folder');
         list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
-        list.querySelectorAll('.foldy-drop-placeholder').forEach(element => element.remove());
+        // 진행 중인 드래그의 placeholder를 지우면 jQuery UI가 드롭을 마무리하지 못한다.
+        list.querySelectorAll('.foldy-drop-placeholder').forEach(element => {
+            if (element !== activePlaceholder) element.remove();
+        });
     };
 
     // jQuery UI의 placeholder 재배치보다 늦지 않게 동기적으로 판정한다.
@@ -121,18 +128,18 @@ export function setupFolderSortables({
         }
     };
 
-    const moveIntoPointedFolder = item => {
-        if (!isItemElement(item) || !lastPointer) return null;
-        const folderElement = (lastFolderElement && list.contains(lastFolderElement) ? lastFolderElement : null)
-            || document.elementsFromPoint(lastPointer.x, lastPointer.y)
+    const moveIntoPointedFolder = (item, drop) => {
+        if (!isItemElement(item) || !drop.pointer) return null;
+        const folderElement = (drop.folderElement && list.contains(drop.folderElement) ? drop.folderElement : null)
+            || document.elementsFromPoint(drop.pointer.x, drop.pointer.y)
             .map(element => element.closest?.(folderHitSelector))
             .find(folder => folder && list.contains(folder));
         const items = folderElement?.querySelector?.(folderItemsSelector);
         if (!items || items.contains(item)) return null;
         const insertBefore = positionPlaceholderInFolder
-            && lastFolderInsertBefore
-            && items.contains(lastFolderInsertBefore)
-            ? lastFolderInsertBefore
+            && drop.insertBefore
+            && items.contains(drop.insertBefore)
+            ? drop.insertBefore
             : null;
         if (insertBefore) items.insertBefore(item, insertBefore);
         else items.append(item);
@@ -154,6 +161,8 @@ export function setupFolderSortables({
     };
 
     const start = (_, ui) => {
+        dragToken++;
+        activePlaceholder = ui.placeholder?.[0] ?? null;
         clearDropState();
         const item = ui.item?.[0];
         setSorting(true);
@@ -161,10 +170,10 @@ export function setupFolderSortables({
         draggingFolderId = item?.classList?.contains('foldy-folder') ? item.dataset.foldyId : null;
     };
 
-    const finishSort = (ui, { nested = false } = {}) => afterSort(async () => {
+    const finishDrop = async (ui, drop, nested, token) => {
         try {
             const item = ui.item?.[0];
-            if (draggingFolderId && item?.parentElement !== list) {
+            if (drop.draggingFolderId && item?.parentElement !== list) {
                 rerender();
                 return;
             }
@@ -177,16 +186,35 @@ export function setupFolderSortables({
                 rerender();
                 return;
             }
-            const move = moveIntoPointedFolder(item);
+            const move = moveIntoPointedFolder(item, drop);
             if (move?.folderId && moveItemToFolder && !move.preserveDomPosition) {
                 await moveItemToFolder(String(itemIdFromElement(item)), move.folderId);
             }
             else await saveFromDom(saveOptionsFromItem?.(item, { nested }) || {});
         } finally {
-            setSorting(false);
-            clearDropState();
+            // 다음 드래그가 이미 시작됐으면 그 드래그의 placeholder와 상태를 건드리지 않는다.
+            if (token === dragToken) {
+                activePlaceholder = null;
+                setSorting(false);
+                clearDropState();
+            }
         }
-    });
+    };
+
+    const finishSort = (ui, { nested = false } = {}) => {
+        // 드롭 판정 값은 다음 드래그가 덮어쓰기 전에 지금 고정한다.
+        const token = dragToken;
+        const drop = {
+            pointer: lastPointer,
+            folderElement: lastFolderElement,
+            insertBefore: lastFolderInsertBefore,
+            draggingFolderId,
+        };
+        afterSort(() => {
+            finishing = finishing.catch(() => {}).then(() => finishDrop(ui, drop, nested, token));
+            return finishing;
+        });
+    };
 
     $list.sortable({
         delay: getSortableDelay(),
@@ -224,6 +252,7 @@ export function setupFolderSortables({
                 if (ui.item.hasClass('foldy-folder')) {
                     $(ui.sender).sortable('cancel');
                     // 취소된 sender는 항상 stop 이벤트를 발생시키지 않는다.
+                    activePlaceholder = null;
                     setSorting(false);
                     clearDropState();
                 }
