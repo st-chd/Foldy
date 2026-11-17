@@ -8,6 +8,7 @@ import {
     layoutFollowingExternalOrder,
     layoutWithAddedFolder,
     layoutWithFolderDividers,
+    layoutWithFolderLocked,
     layoutWithItemsMovedToFolder,
     layoutWithMovedFolder,
     layoutWithUpdatedFolder,
@@ -23,6 +24,18 @@ export function reconcilePromptOrder(layout, manager) {
     const reordered = orderItemsByLayout(freshLayout, order, entry => entry?.identifier);
     order.splice(0, order.length, ...reordered);
     return freshLayout;
+}
+
+// 잠긴 폴더의 프롬프트는 끌기·연결 해제·편집·토글을 빈 칸으로 바꾸고 토큰 수만 남긴다.
+export function lockPromptItem(item) {
+    item.classList.add('foldy-locked-item');
+    item.querySelector(':scope > .drag-handle')?.classList.replace('drag-handle', 'foldy-locked-handle');
+    item.querySelectorAll('.prompt-manager-detach-action, .prompt-manager-edit-action, .prompt-manager-toggle-action, .foldy-move-to-folder')
+        .forEach(control => {
+            const blank = document.createElement('span');
+            blank.className = 'fa-solid';
+            control.replaceWith(blank);
+        });
 }
 
 function setPromptToolbarSummary(toolbar, layout, visibleItemIds = null) {
@@ -369,6 +382,14 @@ export function createPromptIntegration({
                     if (result.changed) await persistPromptLayout(owner, result.layout, manager);
                     rerender();
                 },
+                onLockToggle: async (id, locked) => {
+                    const activeLayout = currentPromptLayout;
+                    if (rerenderIfPromptContextChanged(activeLayout)) return;
+                    const result = layoutWithFolderLocked(activeLayout, id, locked);
+                    if (!result.changed) return;
+                    await persistPromptLayout(owner, result.layout, manager);
+                    rerender();
+                },
                 onEditDividers: async id => {
                     const activeLayout = currentPromptLayout;
                     const target = activeLayout.folders.find(value => value.id === id);
@@ -388,7 +409,10 @@ export function createPromptIntegration({
             const items = folderElement.querySelector('.foldy-folder-items');
             folder.items.forEach(id => {
                 const item = itemMap.get(id);
-                if (item) {
+                if (item && folder.locked) {
+                    lockPromptItem(item);
+                    items.append(item);
+                } else if (item) {
                     attachMoveToFolderButton(item, {
                         kind: 'prompt',
                         layout: currentPromptLayout,

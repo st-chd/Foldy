@@ -712,7 +712,7 @@ const renderSettings = createSettingsRenderer({
     importLayouts: () => layoutBackupActions.importLayouts(),
 });
 
-function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, onCollapseChange = null, extraButtons = [], itemIdFromElement = null, onDividersChange = null, onEditDividers = null }) {
+function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null, onBulkMove = null, onCollapseChange = null, extraButtons = [], itemIdFromElement = null, onDividersChange = null, onEditDividers = null, onLockToggle = null }) {
     return createFolderElementBase(folder, {
         kind,
         owner,
@@ -727,6 +727,7 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
         itemIdFromElement,
         onDividersChange,
         onEditDividers,
+        onLockToggle,
         ownerCollapsed,
         saveCollapsed,
         withErrorToast,

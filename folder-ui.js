@@ -386,11 +386,15 @@ export function createBorderSidesSetting(labelText, initialSides) {
 }
 
 // 손가락 입력에서는 스크롤하다 구분선이 끌려가므로 drag-handle을 붙이지 않는다. 위치는 구분선 편집 창에서 바꾼다.
-function createDividerElement(onRemove, withErrorToast) {
+function createDividerElement(onRemove, withErrorToast, locked = false) {
     const element = document.createElement('li');
     element.className = 'foldy-divider';
     const line = document.createElement('span');
     line.className = 'foldy-divider-line';
+    if (locked) {
+        element.append(line);
+        return element;
+    }
     if (canDragDividers()) {
         line.classList.add('drag-handle');
         line.title = '구분선 이동';
@@ -424,7 +428,7 @@ export function renderFolderDividers(folderElement, folder) {
         return options.onDividersChange(folder.id, dividersFromFolderElement(folderElement) ?? []);
     };
     for (const anchor of folder.dividers || []) {
-        const divider = createDividerElement(onRemove, options.withErrorToast);
+        const divider = createDividerElement(onRemove, options.withErrorToast, folder.locked === true);
         if (!anchor) items.prepend(divider);
         else rendered.get(anchor)?.after(divider);
     }
@@ -470,6 +474,7 @@ export function createFolderElement(folder, {
     itemIdFromElement = null,
     onDividersChange = null,
     onEditDividers = null,
+    onLockToggle = null,
     ownerCollapsed,
     saveCollapsed,
     withErrorToast,
@@ -477,6 +482,9 @@ export function createFolderElement(folder, {
     const element = document.createElement(kind === 'regex' ? 'div' : 'li');
     element.className = `foldy-folder foldy-${kind}-folder`;
     element.dataset.foldyId = folder.id;
+    // 잠금은 잠금 버튼을 넘겨준 목록(프롬프트)에서만 적용한다.
+    const locked = Boolean(onLockToggle) && folder.locked === true;
+    element.classList.toggle('is-locked', locked);
     const backgroundColor = normalizeColor(folder.color);
     const borderColor = normalizeColor(folder.borderColor);
     if (backgroundColor) element.style.setProperty('--foldy-background-color', backgroundColor);
@@ -495,8 +503,11 @@ export function createFolderElement(folder, {
     header.className = 'foldy-folder-header';
 
     const drag = document.createElement('span');
-    drag.className = 'foldy-drag drag-handle fa-solid fa-bars';
-    drag.title = '폴더 이동';
+    drag.className = locked ? 'foldy-drag foldy-lock-mark fa-solid fa-lock' : 'foldy-drag drag-handle fa-solid fa-bars';
+    drag.title = locked ? '잠김' : '폴더 이동';
+
+    const lock = createIconButton(locked ? 'fa-lock-open' : 'fa-lock', locked ? '잠금 해제' : '잠금', 'foldy-lock-toggle');
+    lock.addEventListener('click', () => withErrorToast(locked ? '잠금 해제' : '잠금', () => onLockToggle(folder.id, !locked)));
 
     const name = document.createElement('span');
     name.className = 'foldy-folder-name';
@@ -604,6 +615,17 @@ export function createFolderElement(folder, {
     });
 
     header.append(drag, collapse);
+    if (locked) {
+        // 잠긴 폴더는 메뉴에 잠금 해제만 남긴다. 구분선은 화면에만 그린다.
+        header.append(name, count);
+        if (onDividersChange && itemIdFromElement) {
+            element.__foldyDividerOptions = { itemIdFromElement, onDividersChange, withErrorToast };
+        }
+        actions.append(lock);
+        header.append(more, actions);
+        element.append(header, items);
+        return element;
+    }
     if (onStateToggle) {
         header.classList.add('has-state-toggle');
         if (shouldShowMixedStateBadge(kind, state)) header.classList.add('has-mixed-state');
@@ -635,6 +657,7 @@ export function createFolderElement(folder, {
         element.__foldyDividerOptions = { itemIdFromElement, onDividersChange, withErrorToast };
         if (onEditDividers) actions.append(addDivider);
     }
+    if (onLockToggle) actions.append(lock);
     actions.append(edit, remove);
     header.append(more, actions);
     element.append(header, items);

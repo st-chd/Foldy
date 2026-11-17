@@ -144,6 +144,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
                 .map(key => [key, candidate[key]])),
             items,
             ...(dividers.length ? { dividers } : {}),
+            ...(candidate.locked === true ? { locked: true } : {}),
         });
     }
 
@@ -358,6 +359,16 @@ export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3
         ownerForMoved.set(id, absorbingFolder(previousId, nextId, ownerByItemId));
     }
 
+    // 잠긴 폴더의 구성은 외부 순서 때문에 바뀌지 않게 한다.
+    const lockedChanged = [...ownerForMoved].filter(([id, owner]) => {
+        const previous = ownerByItemId.get(id) ?? '';
+        return owner !== previous && (folderMap.get(previous)?.locked || folderMap.get(owner)?.locked);
+    });
+    if (lockedChanged.length) {
+        onSkip?.({ reason: 'locked-folder', movedIds: lockedChanged.map(([id]) => id) });
+        return layout;
+    }
+
     const folders = (layout.folders || []).map(folder => ({ ...folder, items: [] }));
     const nextFolderMap = new Map(folders.map(folder => [String(folder.id), folder]));
     const root = [];
@@ -423,12 +434,14 @@ export function layoutFromTree(nodes, sourceLayout, itemIds = [], {
                 missingSourceFolders.push(id);
                 continue;
             }
-            const items = preserved.has(id) || node.preserveItems
+            // 잠긴 폴더는 화면 상태와 관계없이 저장된 구성을 유지한다.
+            const keepSource = preserved.has(id) || node.preserveItems || source.locked === true;
+            const items = keepSource
                 ? [...source.items]
                 : (Array.isArray(node.itemIds) ? node.itemIds : []).map(String).filter(Boolean);
             const folder = { ...source, items };
             // 화면에서 다시 읽은 구분선이 있으면 그 위치를 쓴다.
-            if (!preserved.has(id) && !node.preserveItems && Array.isArray(node.dividers)) folder.dividers = node.dividers.map(String);
+            if (!keepSource && Array.isArray(node.dividers)) folder.dividers = node.dividers.map(String);
             folders.push(folder);
             root.push({ type: 'folder', id });
             if (preserved.has(id)) seenPreservedFolders.add(id);
@@ -625,7 +638,9 @@ export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
     const targetFolderId = String(folderId ?? '');
     if (currentRootIndex !== -1 && !targetFolderId) return { changed: false, layout };
     if (currentFolderId === targetFolderId) return { changed: false, layout };
-    if (targetFolderId && !layout.folders.some(value => value.id === targetFolderId)) return { changed: false, layout };
+    const targetFolder = targetFolderId ? layout.folders.find(value => value.id === targetFolderId) : null;
+    if (targetFolderId && !targetFolder) return { changed: false, layout };
+    if (currentFolder?.locked || targetFolder?.locked) return { changed: false, layout };
 
     const root = layout.root.filter(node => !(node.type === 'item' && node.id === id));
     const folders = layout.folders.map(folder => folderWithoutItems(folder, value => value === id));
@@ -650,11 +665,14 @@ export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
 }
 
 export function layoutWithItemsMovedToFolder(layout, itemIds, folderId) {
-    const ids = itemIds.map(String);
+    const lockedIds = new Set(layout.folders.filter(folder => folder.locked).flatMap(folder => folder.items));
+    const ids = itemIds.map(String).filter(id => !lockedIds.has(id));
     if (!ids.length) return { changed: false, layout };
     const idSet = new Set(ids);
     const targetFolderId = String(folderId ?? '');
-    if (targetFolderId && !layout.folders.some(value => value.id === targetFolderId)) return { changed: false, layout };
+    const targetFolder = targetFolderId ? layout.folders.find(value => value.id === targetFolderId) : null;
+    if (targetFolderId && !targetFolder) return { changed: false, layout };
+    if (targetFolder?.locked) return { changed: false, layout };
 
     const root = layout.root.filter(node => !(node.type === 'item' && idSet.has(String(node.id))));
     const folders = layout.folders.map(folder => folderWithoutItems(folder, value => idSet.has(value)));
@@ -712,7 +730,8 @@ export function layoutWithAddedFolder(layout, folderName, itemIds = [], createFo
 export function layoutWithMovedFolder(layout, folderId, afterKey = '') {
     const id = String(folderId ?? '');
     const folderKey = `folder:${id}`;
-    if (!layout.folders.some(folder => folder.id === id)) return { changed: false, layout };
+    const source = layout.folders.find(folder => folder.id === id);
+    if (!source || source.locked) return { changed: false, layout };
     if (afterKey === folderKey) return { changed: false, layout };
 
     const remainingRoot = layout.root.filter(node => rootNodeKey(node) !== folderKey);
@@ -736,6 +755,18 @@ export function layoutWithFolderDividers(layout, folderId, dividers) {
         if (folder.id !== id) return folder;
         const { dividers: _previous, ...rest } = folder;
         return next.length ? { ...rest, dividers: next } : rest;
+    });
+    return { changed: true, layout: { ...layout, folders } };
+}
+
+export function layoutWithFolderLocked(layout, folderId, locked) {
+    const id = String(folderId ?? '');
+    const source = layout.folders.find(folder => folder.id === id);
+    if (!source || Boolean(source.locked) === Boolean(locked)) return { changed: false, layout };
+    const folders = layout.folders.map(folder => {
+        if (folder.id !== id) return folder;
+        const { locked: _previous, ...rest } = folder;
+        return locked ? { ...rest, locked: true } : rest;
     });
     return { changed: true, layout: { ...layout, folders } };
 }
