@@ -1,4 +1,5 @@
 import { BORDER_SIDES, borderSidesValue, folderBorder, folderStyleValues } from './folder-style.js';
+import { isFolderLocked } from './model.js';
 
 export { folderStyleValues } from './folder-style.js';
 
@@ -428,7 +429,7 @@ export function renderFolderDividers(folderElement, folder) {
         return options.onDividersChange(folder.id, dividersFromFolderElement(folderElement) ?? []);
     };
     for (const anchor of folder.dividers || []) {
-        const divider = createDividerElement(onRemove, options.withErrorToast, folder.locked === true);
+        const divider = createDividerElement(onRemove, options.withErrorToast, isFolderLocked(folder));
         if (!anchor) items.prepend(divider);
         else rendered.get(anchor)?.after(divider);
     }
@@ -483,7 +484,7 @@ export function createFolderElement(folder, {
     element.className = `foldy-folder foldy-${kind}-folder`;
     element.dataset.foldyId = folder.id;
     // 잠금은 잠금 버튼을 넘겨준 목록(프롬프트)에서만 적용한다.
-    const locked = Boolean(onLockToggle) && folder.locked === true;
+    const locked = Boolean(onLockToggle) && isFolderLocked(folder);
     element.classList.toggle('is-locked', locked);
     const backgroundColor = normalizeColor(folder.color);
     const borderColor = normalizeColor(folder.borderColor);

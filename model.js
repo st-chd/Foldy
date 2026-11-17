@@ -269,6 +269,13 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
     return { version: FOLDY_VERSION, root, folders };
 }
 
+// 이웃 한쪽이 원래 폴더에 남아 있으면 폴더 경계로 옮긴 것으로 보고 원래 폴더를 반환한다.
+function originalFolderAtEdge(id, previousId, nextId, folderByItemId) {
+    const owner = folderByItemId.get(id) ?? '';
+    if (!owner) return '';
+    return folderByItemId.get(previousId) === owner || folderByItemId.get(nextId) === owner ? owner : '';
+}
+
 // 양쪽 이웃이 같은 폴더일 때만 그 ID를 반환한다.
 function absorbingFolder(previousId, nextId, folderByItemId) {
     if (!previousId || !nextId) return '';
@@ -340,86 +347,95 @@ export function layoutFollowingExternalOrder(layout, externalIds, { onSkip = nul
     const movedIds = new Set(external.filter((_, index) => !keptIndices.has(index)));
 
     // 이동 항목의 새 소속은 남은 이웃으로 정한다.
-    const ownerForMoved = new Map();
-    for (let index = 0; index < external.length; index++) {
-        const id = external[index];
-        if (!movedIds.has(id)) continue;
-        let previousId = '';
-        for (let cursor = index - 1; cursor >= 0; cursor--) {
-            if (movedIds.has(external[cursor])) continue;
-            previousId = external[cursor];
-            break;
+    const layoutWithOwners = keepEdgeOwner => {
+        const ownerForMoved = new Map();
+        for (let index = 0; index < external.length; index++) {
+            const id = external[index];
+            if (!movedIds.has(id)) continue;
+            let previousId = '';
+            for (let cursor = index - 1; cursor >= 0; cursor--) {
+                if (movedIds.has(external[cursor])) continue;
+                previousId = external[cursor];
+                break;
+            }
+            let nextId = '';
+            for (let cursor = index + 1; cursor < external.length; cursor++) {
+                if (movedIds.has(external[cursor])) continue;
+                nextId = external[cursor];
+                break;
+            }
+            ownerForMoved.set(id, absorbingFolder(previousId, nextId, ownerByItemId)
+                || (keepEdgeOwner ? originalFolderAtEdge(id, previousId, nextId, ownerByItemId) : ''));
         }
-        let nextId = '';
-        for (let cursor = index + 1; cursor < external.length; cursor++) {
-            if (movedIds.has(external[cursor])) continue;
-            nextId = external[cursor];
-            break;
-        }
-        ownerForMoved.set(id, absorbingFolder(previousId, nextId, ownerByItemId));
-    }
 
-    // 폴더 항목이 전부 옮겨졌으면 폴더째 옮긴 것으로 보고, 가장 긴 연속 구간에 소속을 남긴다.
-    const keptOwners = new Set(external.filter(id => !movedIds.has(id)).map(id => ownerByItemId.get(id) ?? ''));
-    const isMovedWithWholeFolder = id => {
-        const owner = ownerByItemId.get(id) ?? '';
-        return Boolean(owner) && movedIds.has(id) && !ownerForMoved.get(id) && !keptOwners.has(owner);
+        // 폴더 항목이 전부 옮겨졌으면 폴더째 옮긴 것으로 보고, 가장 긴 연속 구간에 소속을 남긴다.
+        const keptOwners = new Set(external.filter(id => !movedIds.has(id)).map(id => ownerByItemId.get(id) ?? ''));
+        const isMovedWithWholeFolder = id => {
+            const owner = ownerByItemId.get(id) ?? '';
+            return Boolean(owner) && movedIds.has(id) && !ownerForMoved.get(id) && !keptOwners.has(owner);
+        };
+        const longestRunByFolder = new Map();
+        for (let index = 0; index < external.length;) {
+            if (!isMovedWithWholeFolder(external[index])) {
+                index++;
+                continue;
+            }
+            const owner = ownerByItemId.get(external[index]);
+            const run = [];
+            while (index < external.length && isMovedWithWholeFolder(external[index]) && ownerByItemId.get(external[index]) === owner) {
+                run.push(external[index++]);
+            }
+            if (run.length > (longestRunByFolder.get(owner)?.length ?? 0)) longestRunByFolder.set(owner, run);
+        }
+        for (const [owner, run] of longestRunByFolder) run.forEach(id => ownerForMoved.set(id, owner));
+
+        const folders = (layout.folders || []).map(folder => ({ ...folder, items: [] }));
+        const nextFolderMap = new Map(folders.map(folder => [String(folder.id), folder]));
+        const root = [];
+        const emittedFolders = new Set();
+        for (const id of external) {
+            const owner = movedIds.has(id) ? ownerForMoved.get(id) : (ownerByItemId.get(id) ?? '');
+            const folder = owner ? nextFolderMap.get(owner) : null;
+            if (!folder) {
+                root.push({ type: 'item', id });
+                continue;
+            }
+            if (!emittedFolders.has(owner)) {
+                emittedFolders.add(owner);
+                root.push({ type: 'folder', id: owner });
+            }
+            folder.items.push(id);
+        }
+
+        // 외부 순서에 없는 빈 폴더는 원래 위치 근처에 복원한다.
+        let anchor = '';
+        for (const node of layout.root || []) {
+            const id = String(node.id);
+            if (node.type === 'folder' && !emittedFolders.has(id)) {
+                const at = anchor ? root.findIndex(value => rootNodeIdentity(value) === anchor) + 1 : 0;
+                root.splice(at, 0, { type: 'folder', id });
+                anchor = rootNodeIdentity({ type: 'folder', id });
+                continue;
+            }
+            const identity = rootNodeIdentity({ type: node.type, id });
+            if (root.some(value => rootNodeIdentity(value) === identity)) anchor = identity;
+        }
+
+        return { version: FOLDY_VERSION, root, folders };
     };
-    const longestRunByFolder = new Map();
-    for (let index = 0; index < external.length;) {
-        if (!isMovedWithWholeFolder(external[index])) {
-            index++;
-            continue;
-        }
-        const owner = ownerByItemId.get(external[index]);
-        const run = [];
-        while (index < external.length && isMovedWithWholeFolder(external[index]) && ownerByItemId.get(external[index]) === owner) {
-            run.push(external[index++]);
-        }
-        if (run.length > (longestRunByFolder.get(owner)?.length ?? 0)) longestRunByFolder.set(owner, run);
-    }
-    for (const [owner, run] of longestRunByFolder) run.forEach(id => ownerForMoved.set(id, owner));
 
-    const folders = (layout.folders || []).map(folder => ({ ...folder, items: [] }));
-    const nextFolderMap = new Map(folders.map(folder => [String(folder.id), folder]));
-    const root = [];
-    const emittedFolders = new Set();
-    for (const id of external) {
-        const owner = movedIds.has(id) ? ownerForMoved.get(id) : (ownerByItemId.get(id) ?? '');
-        const folder = owner ? nextFolderMap.get(owner) : null;
-        if (!folder) {
-            root.push({ type: 'item', id });
-            continue;
-        }
-        if (!emittedFolders.has(owner)) {
-            emittedFolders.add(owner);
-            root.push({ type: 'folder', id: owner });
-        }
-        folder.items.push(id);
+    const matchesExternal = next => {
+        const flattened = flattenLayout(next);
+        return flattened.length === external.length && flattened.every((id, index) => id === external[index]);
+    };
+    // 폴더 경계에 둔 항목 때문에 순서를 재현할 수 없으면 양쪽 이웃 규칙만으로 다시 계산한다.
+    for (const keepEdgeOwner of [true, false]) {
+        const next = layoutWithOwners(keepEdgeOwner);
+        if (matchesExternal(next)) return next;
     }
-
-    // 외부 순서에 없는 빈 폴더는 원래 위치 근처에 복원한다.
-    let anchor = '';
-    for (const node of layout.root || []) {
-        const id = String(node.id);
-        if (node.type === 'folder' && !emittedFolders.has(id)) {
-            const at = anchor ? root.findIndex(value => rootNodeIdentity(value) === anchor) + 1 : 0;
-            root.splice(at, 0, { type: 'folder', id });
-            anchor = rootNodeIdentity({ type: 'folder', id });
-            continue;
-        }
-        const identity = rootNodeIdentity({ type: node.type, id });
-        if (root.some(value => rootNodeIdentity(value) === identity)) anchor = identity;
-    }
-
-    const next = { version: FOLDY_VERSION, root, folders };
     // 외부 순서를 재현할 수 없으면 변경하지 않는다.
-    const flattened = flattenLayout(next);
-    if (flattened.length !== external.length || !flattened.every((id, index) => id === external[index])) {
-        onSkip?.({ reason: 'order-mismatch', movedIds: [...movedIds] });
-        return layout;
-    }
-    return next;
+    onSkip?.({ reason: 'order-mismatch', movedIds: [...movedIds] });
+    return layout;
 }
 
 export function layoutFromTree(nodes, sourceLayout, itemIds = [], {
