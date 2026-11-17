@@ -339,6 +339,7 @@ function createSettingsRenderer({
     renderPrompts,
     renderLore,
     renderRegex,
+    followExternalPromptOrder,
     applyLorebookFeatureState,
     applyLorebookHome,
     exportLayouts,
@@ -363,6 +364,8 @@ function createSettingsRenderer({
         $('#foldy_enable_prompts').on('input', function () {
             sessionDisabledFeatures.delete('prompts');
             settings().features.prompts = !!this.checked;
+            // 새로고침이나 프리셋 전환을 거쳤어도 꺼져 있던 동안 바뀐 순서를 먼저 반영한다.
+            if (this.checked) followExternalPromptOrder();
             saveSettingsDebounced();
             rerender();
         });
@@ -706,6 +709,7 @@ const renderSettings = createSettingsRenderer({
         lorebookHome.render();
     },
     renderRegex: () => enhanceRegexLists(),
+    followExternalPromptOrder: () => followExternalPromptOrder(),
     applyLorebookFeatureState: () => applyLorebookFeatureState(),
     applyLorebookHome: () => lorebookHome.applyMode(),
     exportLayouts: () => layoutBackupActions.exportLayouts(),
@@ -816,6 +820,7 @@ const {
     renderPrompts,
     invalidatePromptLayout,
     restorePromptLayoutOrder,
+    followExternalPromptOrder,
 } = createPromptIntegration({
     settings,
     saveSettingsDebounced,
