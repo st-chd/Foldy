@@ -27,16 +27,12 @@ export function reconcilePromptOrder(layout, manager) {
     return freshLayout;
 }
 
-// 잠긴 폴더의 프롬프트는 끌기·연결 해제·편집·토글을 빈 칸으로 바꾸고 토큰 수만 남긴다.
+// 잠긴 폴더의 프롬프트는 끌기·연결 해제·편집·토글을 없애고 토큰 수만 남긴다.
 function lockPromptItem(item) {
     item.classList.add('foldy-locked-item');
     item.querySelector(':scope > .drag-handle')?.classList.replace('drag-handle', 'foldy-locked-handle');
-    item.querySelectorAll('.prompt-manager-detach-action, .prompt-manager-edit-action, .prompt-manager-toggle-action')
-        .forEach(control => {
-            const blank = document.createElement('span');
-            blank.className = 'fa-solid';
-            control.replaceWith(blank);
-        });
+    // 조작 아이콘 칸을 통째로 없애 이름에 그 공간을 준다.
+    item.querySelector(':scope > span > .prompt_manager_prompt_controls')?.parentElement.remove();
 }
 
 function setPromptToolbarSummary(toolbar, layout, visibleItemIds = null) {
