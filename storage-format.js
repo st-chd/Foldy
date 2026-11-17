@@ -49,7 +49,8 @@ function canonicalLayout(layout, collapsedIds) {
                 const { id: _id, ...rest } = folder;
                 for (const [key] of STYLE_KEYS) if (rest[key] === '' || rest[key] === undefined) delete rest[key];
                 if (Array.isArray(rest.dividers) && !rest.dividers.length) delete rest.dividers;
-                if (rest.locked === false) delete rest.locked;
+                // 압축 형식은 locked === true만 저장하므로 비교 값도 같은 기준으로 맞춘다.
+                if (rest.locked !== true) delete rest.locked;
                 return { ...rest, collapsed: collapsed.has(String(folder.id)) };
             })
             : layout.folders ?? null,

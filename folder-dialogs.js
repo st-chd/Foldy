@@ -3,6 +3,7 @@ import { BORDER_WIDTHS, folderBorder } from './folder-style.js';
 import {
     foldersInDisplayOrder,
     hasDuplicateFolderName,
+    isFolderLocked,
     layoutWithItemMovedToFolder,
     rootItemIds,
     rootNodeKey,
@@ -121,7 +122,7 @@ function currentAnchorKeyForFolder(layout, folderId) {
 
 // 잠긴 폴더는 항목을 넣거나 뺄 수 없으므로 이동 창에 보이지 않는다.
 function openFoldersInDisplayOrder(layout) {
-    return foldersInDisplayOrder(layout).filter(folder => !folder.locked);
+    return foldersInDisplayOrder(layout).filter(folder => !isFolderLocked(folder));
 }
 
 function labelMapFromCandidates(candidates) {

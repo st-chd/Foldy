@@ -188,6 +188,7 @@ export function setupFolderSortables({
             }
             else await saveFromDom(saveOptionsFromItem?.(item, { nested }) || {});
         } finally {
+            activePlaceholder = null;
             setSorting(false);
             clearDropState();
         }
@@ -229,6 +230,7 @@ export function setupFolderSortables({
                 if (ui.item.hasClass('foldy-folder')) {
                     $(ui.sender).sortable('cancel');
                     // 취소된 sender는 항상 stop 이벤트를 발생시키지 않는다.
+                    activePlaceholder = null;
                     setSorting(false);
                     clearDropState();
                 }

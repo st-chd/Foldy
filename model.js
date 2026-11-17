@@ -92,6 +92,10 @@ function folderWithoutItems(folder, isRemoved) {
     return { ...folder, items, dividers: normalizeDividers(folder.dividers, folder.items, items) };
 }
 
+export function isFolderLocked(folder) {
+    return folder?.locked === true;
+}
+
 function uniqueFolderName(name, usedNames) {
     const base = String(name || '새 폴더').trim() || '새 폴더';
     let candidate = base;
@@ -144,7 +148,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
                 .map(key => [key, candidate[key]])),
             items,
             ...(dividers.length ? { dividers } : {}),
-            ...(candidate.locked === true ? { locked: true } : {}),
+            ...(isFolderLocked(candidate) ? { locked: true } : {}),
         });
     }
 
@@ -228,9 +232,9 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         const itemId = validIds[index];
         if (placedItems.has(itemId)) continue;
 
-        // 양쪽 이웃이 같은 폴더일 때만 그 폴더에 넣는다.
+        // 양쪽 이웃이 같은 폴더일 때만 그 폴더에 넣는다. 잠긴 폴더는 새 항목을 받지 않고 폴더 뒤에 둔다.
         const absorbingFolderId = absorbingFolder(previousKnownIds[index], nextKnownIds[index], folderByItemId);
-        if (absorbingFolderId) {
+        if (absorbingFolderId && !isFolderLocked(folderMap.get(absorbingFolderId))) {
             const folder = folderMap.get(absorbingFolderId);
             const at = folder.items.indexOf(previousKnownIds[index]) + 1;
             if (!folderInsertions.has(absorbingFolderId)) folderInsertions.set(absorbingFolderId, new Map());
@@ -303,8 +307,8 @@ function rootNodeIdentity(node) {
     return `${node.type}␟${node.id}`;
 }
 
-// 외부 순서 변경은 소수의 이동만 폴더 소속을 유지해 반영한다.
-export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3, onSkip = null } = {}) {
+// Foldy 밖에서 바뀐 순서는 이동 개수나 잠금과 관계없이 따른다. 폴더 소속은 이웃과 연속 구간으로 정한다.
+export function layoutFollowingExternalOrder(layout, externalIds, { onSkip = null } = {}) {
     const current = flattenLayout(layout);
     const external = [];
     const externalSet = new Set();
@@ -334,10 +338,6 @@ export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3
     const positionInCurrent = new Map(current.map((id, index) => [id, index]));
     const keptIndices = new Set(longestIncreasingSubsequenceIndices(external.map(id => positionInCurrent.get(id))));
     const movedIds = new Set(external.filter((_, index) => !keptIndices.has(index)));
-    if (movedIds.size > maxMoves) {
-        onSkip?.({ reason: 'too-many-moves', movedCount: movedIds.size, movedIds: [...movedIds] });
-        return layout;
-    }
 
     // 이동 항목의 새 소속은 남은 이웃으로 정한다.
     const ownerForMoved = new Map();
@@ -359,15 +359,26 @@ export function layoutFollowingExternalOrder(layout, externalIds, { maxMoves = 3
         ownerForMoved.set(id, absorbingFolder(previousId, nextId, ownerByItemId));
     }
 
-    // 잠긴 폴더의 구성은 외부 순서 때문에 바뀌지 않게 한다.
-    const lockedChanged = [...ownerForMoved].filter(([id, owner]) => {
-        const previous = ownerByItemId.get(id) ?? '';
-        return owner !== previous && (folderMap.get(previous)?.locked || folderMap.get(owner)?.locked);
-    });
-    if (lockedChanged.length) {
-        onSkip?.({ reason: 'locked-folder', movedIds: lockedChanged.map(([id]) => id) });
-        return layout;
+    // 폴더 항목이 전부 옮겨졌으면 폴더째 옮긴 것으로 보고, 가장 긴 연속 구간에 소속을 남긴다.
+    const keptOwners = new Set(external.filter(id => !movedIds.has(id)).map(id => ownerByItemId.get(id) ?? ''));
+    const isMovedWithWholeFolder = id => {
+        const owner = ownerByItemId.get(id) ?? '';
+        return Boolean(owner) && movedIds.has(id) && !ownerForMoved.get(id) && !keptOwners.has(owner);
+    };
+    const longestRunByFolder = new Map();
+    for (let index = 0; index < external.length;) {
+        if (!isMovedWithWholeFolder(external[index])) {
+            index++;
+            continue;
+        }
+        const owner = ownerByItemId.get(external[index]);
+        const run = [];
+        while (index < external.length && isMovedWithWholeFolder(external[index]) && ownerByItemId.get(external[index]) === owner) {
+            run.push(external[index++]);
+        }
+        if (run.length > (longestRunByFolder.get(owner)?.length ?? 0)) longestRunByFolder.set(owner, run);
     }
+    for (const [owner, run] of longestRunByFolder) run.forEach(id => ownerForMoved.set(id, owner));
 
     const folders = (layout.folders || []).map(folder => ({ ...folder, items: [] }));
     const nextFolderMap = new Map(folders.map(folder => [String(folder.id), folder]));
@@ -435,7 +446,7 @@ export function layoutFromTree(nodes, sourceLayout, itemIds = [], {
                 continue;
             }
             // 잠긴 폴더는 화면 상태와 관계없이 저장된 구성을 유지한다.
-            const keepSource = preserved.has(id) || node.preserveItems || source.locked === true;
+            const keepSource = preserved.has(id) || node.preserveItems || isFolderLocked(source);
             const items = keepSource
                 ? [...source.items]
                 : (Array.isArray(node.itemIds) ? node.itemIds : []).map(String).filter(Boolean);
@@ -640,7 +651,7 @@ export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
     if (currentFolderId === targetFolderId) return { changed: false, layout };
     const targetFolder = targetFolderId ? layout.folders.find(value => value.id === targetFolderId) : null;
     if (targetFolderId && !targetFolder) return { changed: false, layout };
-    if (currentFolder?.locked || targetFolder?.locked) return { changed: false, layout };
+    if (isFolderLocked(currentFolder) || isFolderLocked(targetFolder)) return { changed: false, layout };
 
     const root = layout.root.filter(node => !(node.type === 'item' && node.id === id));
     const folders = layout.folders.map(folder => folderWithoutItems(folder, value => value === id));
@@ -665,14 +676,14 @@ export function layoutWithItemMovedToFolder(layout, itemId, folderId) {
 }
 
 export function layoutWithItemsMovedToFolder(layout, itemIds, folderId) {
-    const lockedIds = new Set(layout.folders.filter(folder => folder.locked).flatMap(folder => folder.items));
+    const lockedIds = new Set(layout.folders.filter(isFolderLocked).flatMap(folder => folder.items));
     const ids = itemIds.map(String).filter(id => !lockedIds.has(id));
     if (!ids.length) return { changed: false, layout };
     const idSet = new Set(ids);
     const targetFolderId = String(folderId ?? '');
     const targetFolder = targetFolderId ? layout.folders.find(value => value.id === targetFolderId) : null;
     if (targetFolderId && !targetFolder) return { changed: false, layout };
-    if (targetFolder?.locked) return { changed: false, layout };
+    if (isFolderLocked(targetFolder)) return { changed: false, layout };
 
     const root = layout.root.filter(node => !(node.type === 'item' && idSet.has(String(node.id))));
     const folders = layout.folders.map(folder => folderWithoutItems(folder, value => idSet.has(value)));
@@ -731,7 +742,7 @@ export function layoutWithMovedFolder(layout, folderId, afterKey = '') {
     const id = String(folderId ?? '');
     const folderKey = `folder:${id}`;
     const source = layout.folders.find(folder => folder.id === id);
-    if (!source || source.locked) return { changed: false, layout };
+    if (!source || isFolderLocked(source)) return { changed: false, layout };
     if (afterKey === folderKey) return { changed: false, layout };
 
     const remainingRoot = layout.root.filter(node => rootNodeKey(node) !== folderKey);
@@ -762,7 +773,7 @@ export function layoutWithFolderDividers(layout, folderId, dividers) {
 export function layoutWithFolderLocked(layout, folderId, locked) {
     const id = String(folderId ?? '');
     const source = layout.folders.find(folder => folder.id === id);
-    if (!source || Boolean(source.locked) === Boolean(locked)) return { changed: false, layout };
+    if (!source || isFolderLocked(source) === Boolean(locked)) return { changed: false, layout };
     const folders = layout.folders.map(folder => {
         if (folder.id !== id) return folder;
         const { locked: _previous, ...rest } = folder;

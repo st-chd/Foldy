@@ -506,8 +506,12 @@ export function createFolderElement(folder, {
     drag.className = locked ? 'foldy-drag foldy-lock-mark fa-solid fa-lock' : 'foldy-drag drag-handle fa-solid fa-bars';
     drag.title = locked ? '잠김' : '폴더 이동';
 
-    const lock = createIconButton(locked ? 'fa-lock-open' : 'fa-lock', locked ? '잠금 해제' : '잠금', 'foldy-lock-toggle');
-    lock.addEventListener('click', () => withErrorToast(locked ? '잠금 해제' : '잠금', () => onLockToggle(folder.id, !locked)));
+    let lock = null;
+    if (onLockToggle) {
+        const lockLabel = locked ? '잠금 해제' : '잠금';
+        lock = createIconButton(locked ? 'fa-lock-open' : 'fa-lock', lockLabel, 'foldy-lock-toggle');
+        lock.addEventListener('click', () => withErrorToast(lockLabel, () => onLockToggle(folder.id, !locked)));
+    }
 
     const name = document.createElement('span');
     name.className = 'foldy-folder-name';
@@ -614,17 +618,21 @@ export function createFolderElement(folder, {
         toggleCollapsed();
     });
 
+    const finish = () => {
+        if (onDividersChange && itemIdFromElement) {
+            element.__foldyDividerOptions = { itemIdFromElement, onDividersChange, withErrorToast };
+        }
+        header.append(more, actions);
+        element.append(header, items);
+        return element;
+    };
+
     header.append(drag, collapse);
     if (locked) {
         // 잠긴 폴더는 메뉴에 잠금 해제만 남긴다. 구분선은 화면에만 그린다.
         header.append(name, count);
-        if (onDividersChange && itemIdFromElement) {
-            element.__foldyDividerOptions = { itemIdFromElement, onDividersChange, withErrorToast };
-        }
         actions.append(lock);
-        header.append(more, actions);
-        element.append(header, items);
-        return element;
+        return finish();
     }
     if (onStateToggle) {
         header.classList.add('has-state-toggle');
@@ -653,13 +661,8 @@ export function createFolderElement(folder, {
         header.classList.add('has-bulk-move');
         actions.append(bulkMove);
     }
-    if (onDividersChange && itemIdFromElement) {
-        element.__foldyDividerOptions = { itemIdFromElement, onDividersChange, withErrorToast };
-        if (onEditDividers) actions.append(addDivider);
-    }
-    if (onLockToggle) actions.append(lock);
+    if (onDividersChange && itemIdFromElement && onEditDividers) actions.append(addDivider);
+    if (lock) actions.append(lock);
     actions.append(edit, remove);
-    header.append(more, actions);
-    element.append(header, items);
-    return element;
+    return finish();
 }
