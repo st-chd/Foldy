@@ -1,5 +1,6 @@
 import {
     closeOpenFolderMenus,
+    notifyStaleChange,
     renderFolderDividers,
     updateFolderCount,
 } from './folder-ui.js';
@@ -305,6 +306,7 @@ export function createPromptIntegration({
         const promptContextChanged = activeLayout => !promptContextReady() || activeLayout !== currentPromptLayout || promptOwnerKey() !== owner;
         const rerenderIfPromptContextChanged = activeLayout => {
             if (!promptContextChanged(activeLayout)) return false;
+            notifyStaleChange();
             rerender();
             return true;
         };
@@ -360,6 +362,7 @@ export function createPromptIntegration({
                         itemId: node.id,
                         onMove: async movedLayout => {
                             if (promptOwnerKey() !== owner) {
+                                notifyStaleChange();
                                 rerender();
                                 return;
                             }
@@ -439,6 +442,7 @@ export function createPromptIntegration({
                         itemId: id,
                         onMove: async movedLayout => {
                             if (promptOwnerKey() !== owner) {
+                                notifyStaleChange();
                                 rerender();
                                 return;
                             }

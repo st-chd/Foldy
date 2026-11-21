@@ -1,4 +1,4 @@
-import { folderStyleValues, isColorValue, normalizeColor } from './folder-ui.js';
+import { isColorValue, normalizeColor } from './folder-ui.js';
 
 const TARGETS = ['prompts', 'lorebooks', 'regex-global', 'regex-preset', 'regex-scoped'];
 const COLOR_ARGUMENTS = { background: 'color', border: 'borderColor', text: 'nameColor' };
@@ -18,12 +18,10 @@ export function layoutWithCommandColors(layout, args) {
     const folders = layout?.folders || [];
     let source;
     if (selector) {
-        source = folders.find(folder => folder.id === selector);
-        if (!source) {
-            const matches = folders.filter(folder => folder.name === selector);
-            if (matches.length > 1) throw new Error('같은 이름의 폴더가 여러 개입니다. 폴더 ID를 사용해 주세요.');
-            source = matches[0];
-        }
+        // 저장 후 폴더 ID가 '1', '2' 같은 순번이 되므로 숫자 이름과 겹칠 때는 이름을 먼저 따른다.
+        const matches = folders.filter(folder => folder.name === selector);
+        if (matches.length > 1) throw new Error('같은 이름의 폴더가 여러 개입니다. 폴더 ID를 사용해 주세요.');
+        source = matches[0] ?? folders.find(folder => folder.id === selector);
         if (!source) throw new Error(`폴더를 찾을 수 없습니다: ${selector}`);
     } else if (!all) {
         throw new Error('folder에 폴더 이름이나 ID를 입력하거나 all=true를 지정해 주세요.');
@@ -46,8 +44,12 @@ export function layoutWithCommandColors(layout, args) {
     }
     if (!folders.length) throw new Error('선택한 목록에 폴더가 없습니다.');
 
+    // 기준 폴더에서는 세 가지 색상만 복사한다. 테두리 두께·모양·방향까지 덮으면 다른 폴더 설정이 지워진다.
+    const sourceColors = source && all
+        ? Object.fromEntries(Object.values(COLOR_ARGUMENTS).map(property => [property, source[property] ?? '']))
+        : {};
     const style = reset ? { color: '', borderColor: '', nameColor: '' }
-        : { ...(source ? folderStyleValues(source) : {}), ...colors };
+        : { ...sourceColors, ...colors };
     return {
         layout: {
             ...layout,

@@ -22,6 +22,20 @@ export function createEmptyLayout(itemIds = []) {
     };
 }
 
+function sortedJson(value) {
+    if (Array.isArray(value)) return `[${value.map(sortedJson).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).filter(key => value[key] !== undefined).sort()
+            .map(key => `${JSON.stringify(key)}:${sortedJson(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'null';
+}
+
+// 저장된 배치는 복원 과정에서 키 순서가 달라질 수 있어 순서와 무관하게 비교한다.
+export function sameLayout(left, right) {
+    return sortedJson(left) === sortedJson(right);
+}
+
 export function flattenLayout(layout) {
     const folders = new Map(layout.folders.map(folder => [folder.id, folder]));
     return layout.root.flatMap(node => {

@@ -12,6 +12,7 @@
     "hooks": {
         "activate": "init",
         "clean": "onClean",
-        "delete": "onDelete"
+        "delete": "onDelete",
+        "disable": "onDisable"
     }
 }

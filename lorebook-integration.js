@@ -3,6 +3,7 @@ import {
     enabledItemCount,
     enabledState,
     folderCountText,
+    notifyStaleChange,
     setStateButtonIcon,
     updateFolderCount,
 } from './folder-ui.js';
@@ -21,6 +22,7 @@ import {
     isObjectRecord,
     nameKey,
     uniqueNameIndex,
+    layoutShapeError,
 } from './bundle-utils.js';
 import {
     createRenderGate,
@@ -34,6 +36,7 @@ import {
     normalizeLayout,
     removeFolder,
     remapImportedLayout,
+    sameLayout,
 } from './model.js';
 
 export const LORE_PER_PAGE_KEY = 'Foldy_LorePerPage';
@@ -231,8 +234,8 @@ export function createLorebookIntegration({
             const storedLayout = settings().layouts.lorebooks[owner];
             const layout = normalizeLayout(storedLayout, allIds);
             currentLoreLayout = layout;
-            // 초기화된 기본 배치는 화면에서만 계산하고, 저장된 사용자 배치가 있을 때만 정규화 결과를 저장한다.
-            if (storedLayout !== undefined) await persistLoreLayout(owner, layout);
+            // 초기화된 기본 배치는 화면에서만 계산하고, 저장된 사용자 배치가 실제로 달라졌을 때만 저장한다.
+            if (storedLayout !== undefined && !sameLayout(storedLayout, layout)) await persistLoreLayout(owner, layout);
             const query = String($('#world_info_search').val() ?? '').trim();
             const visibleEntries = query ? allEntries.filter(entry => matchesLoreQuery(entry, query)) : allEntries;
             const visibleIds = new Set(visibleEntries.map(entry => String(entry.uid)));
@@ -246,8 +249,9 @@ export function createLorebookIntegration({
 
             const rerender = () => queueLoreRender();
             const loreContextChanged = () => contextChanged() || currentLoreLayout !== layout;
-            const rerenderIfLoreContextChanged = () => {
+            const rerenderIfLoreContextChanged = ({ notify = true } = {}) => {
                 if (!loreContextChanged()) return false;
+                if (notify) notifyStaleChange();
                 rerender();
                 return true;
             };
@@ -328,9 +332,9 @@ export function createLorebookIntegration({
                     if (deferredItemsPending || deferredItemsRendered) return;
                     deferredItemsPending = true;
                     try {
-                        if (rerenderIfLoreContextChanged()) return;
+                        if (rerenderIfLoreContextChanged({ notify: false })) return;
                         const blocks = await Promise.all(shownItems.map(id => renderEntryBlock(id)));
-                        if (rerenderIfLoreContextChanged() || !folderElement.isConnected) return;
+                        if (rerenderIfLoreContextChanged({ notify: false }) || !folderElement.isConnected) return;
                         blocks.filter(Boolean).forEach(element => items.append(element));
                         deferredItemsRendered = true;
                     } finally {
@@ -625,10 +629,18 @@ export function createLorebookIntegration({
             'foldy_lore_collapse_all',
             'foldy_lore_root_bulk_move',
         ].forEach(id => document.getElementById(id)?.remove());
-        document.querySelector(`#world_info_sort_order option[value="${loreSortValue}"]`)?.remove();
+        const sort = document.getElementById('world_info_sort_order');
+        const wasFolderOrder = sort?.value === loreSortValue;
+        sort?.querySelector(`option[value="${loreSortValue}"]`)?.remove();
+        if (wasFolderOrder) sort.value = '0';
         sortingLore = false;
         currentLoreLayout = null;
         lorePageContext = null;
+        // 폴더와 항목별 '폴더로 이동' 버튼이 남지 않도록 본체 목록으로 다시 그린다.
+        const name = selectedLorebookName();
+        if (name && list?.querySelector('.foldy-folder, .foldy-move-to-folder')) {
+            Promise.resolve(reloadEditor(name, true)).catch(error => debugLog('로어북 목록 복원 실패', error, 'warn'));
+        }
     }
 
     return {
@@ -696,7 +708,7 @@ export function isLoreOriginalDataCompatible(data, { debugLog = null, toaster = 
     const compatible = Array.isArray(entries)
         && entries.every(entry => isObjectRecord(entry) && (hasValue(entry.uid) || hasValue(entry.id)));
     if (!compatible) {
-        debugLog?.('error', '로어북 원본 데이터 구조가 예상과 달라 저장을 중단했습니다.', {
+        debugLog?.('로어북 원본 데이터 구조가 예상과 달라 저장을 중단했습니다.', {
             hasOriginalData: !!data?.originalData,
             entriesType: Array.isArray(entries) ? 'array' : typeof entries,
         });
@@ -840,8 +852,9 @@ export function createLorebookBundleActions({
     }
 
     async function importLorebookLayoutBundle(bundle) {
-        if (!bundle?.layout) {
-            toastr.error('로어북 구조 번들에 폴더 구조가 없습니다.');
+        const shapeError = layoutShapeError(bundle?.layout, '로어북 구조');
+        if (shapeError) {
+            toastr.error(shapeError);
             return;
         }
         const { name, owner } = currentLorebookOwner();
@@ -958,6 +971,10 @@ export function createLorebookBundleActions({
             folderCount: Array.isArray(bundle.layout?.folders) ? bundle.layout.folders.length : 0,
             importedCount: importedEntryCount,
             matchedCount: matchedLayoutCount,
+            replaces: exists,
+            removedCount: currentData?.entries
+                ? loreEntryIds(currentData).filter(id => !importedEntryIds.has(String(id))).length
+                : 0,
         });
         const confirmed = await confirmText('로어북 번들 불러오기', exists
             ? `기존 로어북 "${name}"을 이 번들로 바꿀까요?\n\n${layoutSummary}\n\n계속할까요?`

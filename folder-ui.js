@@ -42,14 +42,26 @@ export function bindAction(button, label, handler, {
     button.addEventListener('click', async event => {
         if (preventDefault) event.preventDefault();
         if (stopPropagation) event.stopPropagation();
+        // 처리 중에 다시 누르면 같은 대화상자가 겹쳐 열리고 먼저 닫은 쪽만 반영되므로 무시한다.
+        if (button.dataset.foldyBusy) return;
+        button.dataset.foldyBusy = '1';
         const action = () => handler(event);
-        if (typeof withErrorToast === 'function') {
-            await withErrorToast(label, action);
-            return;
+        try {
+            if (typeof withErrorToast === 'function') {
+                await withErrorToast(label, action);
+                return;
+            }
+            await action();
+        } finally {
+            delete button.dataset.foldyBusy;
         }
-        await action();
     });
     return button;
+}
+
+// 대화상자가 열린 사이 목록이 바뀌어 입력을 버릴 때 알린다.
+export function notifyStaleChange() {
+    globalThis.toastr?.info?.('그 사이 목록이 바뀌어 변경 내용을 적용하지 않았습니다. 다시 시도해 주세요.');
 }
 
 export function updateFolderCount(folderElement, { itemIdFromElement = null, isItemEnabled = null } = {}) {
