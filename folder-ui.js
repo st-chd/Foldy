@@ -193,19 +193,58 @@ export function createSelectionToolbar(list, titleText = '제목') {
     const title = document.createElement('span');
     title.className = 'foldy-selection-title';
     title.textContent = titleText;
+    // 범위 선택: 시작점과 끝점을 차례로 누르면 그 사이만 선택한다. 떨어진 선택은 만들지 않는다.
+    const rangeButton = document.createElement('button');
+    rangeButton.type = 'button';
+    rangeButton.className = 'foldy-range-toggle fa-solid fa-arrows-up-down';
+    rangeButton.title = '범위 선택';
+    let rangeMode = false;
+    let anchor = null;
+    const boxesOf = () => [...list.querySelectorAll('input[type="checkbox"]')];
+    const setAnchor = box => {
+        anchor?.closest('label')?.classList.remove('foldy-range-anchor');
+        anchor = box;
+        anchor?.closest('label')?.classList.add('foldy-range-anchor');
+    };
     const syncHeader = () => {
-        const boxes = [...list.querySelectorAll('input[type="checkbox"]')];
+        const boxes = boxesOf();
+        if (anchor && !list.contains(anchor)) setAnchor(null);
         const checked = boxes.filter(input => input.checked).length;
         master.disabled = !boxes.length;
         master.checked = boxes.length > 0 && checked === boxes.length;
         master.indeterminate = checked > 0 && checked < boxes.length;
+        rangeButton.disabled = boxes.length < 2;
     };
     master.addEventListener('input', () => {
-        list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = master.checked; });
+        boxesOf().forEach(input => { input.checked = master.checked; });
+        setAnchor(null);
+        syncHeader();
+    });
+    rangeButton.addEventListener('click', event => {
+        event.preventDefault();
+        rangeMode = !rangeMode;
+        rangeButton.classList.toggle('is-active', rangeMode);
+        setAnchor(null);
+    });
+    list.addEventListener('click', event => {
+        if (!rangeMode) return;
+        const box = event.target.closest('label')?.querySelector('input[type="checkbox"]');
+        if (!box || !list.contains(box)) return;
+        // 글씨를 눌렀을 때 체크박스로 클릭이 한 번 더 넘어가지 않게 한다.
+        if (event.target !== box) event.preventDefault();
+        const boxes = boxesOf();
+        if (!anchor) {
+            boxes.forEach(input => { input.checked = input === box; });
+            setAnchor(box);
+        } else {
+            const [from, to] = [boxes.indexOf(anchor), boxes.indexOf(box)].sort((a, b) => a - b);
+            boxes.forEach((input, index) => { input.checked = index >= from && index <= to; });
+            setAnchor(null);
+        }
         syncHeader();
     });
     list.addEventListener('input', syncHeader);
-    toolbar.append(master, title);
+    toolbar.append(master, title, rangeButton);
     queueMicrotask(syncHeader);
     return {
         toolbar,
