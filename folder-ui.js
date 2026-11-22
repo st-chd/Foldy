@@ -398,20 +398,19 @@ export function createBorderSidesSetting(labelText, initialSides) {
     };
 }
 
-// 손가락 입력에서는 스크롤하다 구분선이 끌려가므로 drag-handle을 붙이지 않는다. 위치는 구분선 편집 창에서 바꾼다.
-function createDividerElement(onRemove, withErrorToast, locked = false) {
+// 손가락 입력에서는 스크롤하다 구분선이 끌려가고, hover를 지원한다고 알리는 기기는 탭만으로 삭제 버튼이 뜬다.
+// 그래서 끌기와 삭제 버튼을 모두 두지 않고, 위치와 삭제는 구분선 편집 창에서 한다.
+export function createDividerElement(onRemove, withErrorToast, locked = false) {
     const element = document.createElement('li');
     element.className = 'foldy-divider';
     const line = document.createElement('span');
     line.className = 'foldy-divider-line';
-    if (locked) {
+    if (locked || !canDragDividers()) {
         element.append(line);
         return element;
     }
-    if (canDragDividers()) {
-        line.classList.add('drag-handle');
-        line.title = '구분선 이동';
-    }
+    line.classList.add('drag-handle');
+    line.title = '구분선 이동';
     const remove = createIconButton('fa-xmark', '구분선 삭제', 'foldy-divider-remove');
     remove.addEventListener('click', event => {
         event.preventDefault();

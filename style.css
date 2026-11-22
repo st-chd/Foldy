@@ -346,8 +346,8 @@
     background-color: var(--SmartThemeBlurTintColor);
 }
 
-/* 터치 기기는 탭을 hover로 남기므로, 모바일에서는 구분선 편집 창에서만 지운다. */
-@media (hover: hover) {
+/* 터치 기기는 탭을 hover로 남기고 일부는 hover 지원으로 알리므로, 마우스 기기에서만 보인다. */
+@media (hover: hover) and (pointer: fine) {
     .foldy-divider:hover .foldy-divider-remove,
     .foldy-divider:focus-within .foldy-divider-remove {
         display: flex;
