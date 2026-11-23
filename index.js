@@ -400,7 +400,7 @@ function createSettingsRenderer({
             rerender('regex');
         }));
         $('#foldy_clear_all').on('click', () => withErrorToast('Clear all folder data', async () => {
-            await requestClearFoldyData('all', 'All');
+            await requestClearFoldyData('all', '전체');
             rerender();
         }));
         $('#foldy_export_layouts').on('click', () => withErrorToast('일괄 내보내기', exportLayouts));
@@ -1391,6 +1391,7 @@ export async function init() {
     pendingPromptPresets.clear();
     settings();
     maintainLegacyBackup();
+    restoreLoreSortAfterDisable();
     if (!slashCommandsRegistered) {
         foldySlashCommand = registerFoldySlashCommands({
             SlashCommandParser, SlashCommand, SlashCommandNamedArgument, ARGUMENT_TYPE,
@@ -1445,7 +1446,28 @@ async function teardownFoldyRuntime() {
     document.getElementById('foldy_settings')?.remove();
 }
 
+// Foldy가 없으면 ST 정렬 칸에 '폴더 순서' 옵션이 없어 빈칸이 되므로 기본 정렬로 돌려 둔다.
+function resetLoreSortForHost() {
+    if (storedLoreSortValue() !== LORE_SORT_VALUE) return false;
+    accountStorage.setItem(SORT_ORDER_KEY, '0');
+    return true;
+}
+
+function restoreLoreSortAfterDisable() {
+    const ui = settings().ui;
+    if (!ui.restoreLoreSort) return;
+    delete ui.restoreLoreSort;
+    if (accountStorage.getItem(SORT_ORDER_KEY) === '0') accountStorage.setItem(SORT_ORDER_KEY, LORE_SORT_VALUE);
+    saveSettingsDebounced();
+}
+
+export async function onDisable() {
+    // 다시 켤 때 '폴더 순서'를 되살릴 수 있게 표시해 둔다. 저장은 본체가 훅 직후에 한다.
+    if (resetLoreSortForHost()) settings().ui.restoreLoreSort = true;
+}
+
 export async function onDelete() {
+    resetLoreSortForHost();
     await teardownFoldyRuntime();
 }
 

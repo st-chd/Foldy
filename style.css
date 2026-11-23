@@ -346,8 +346,8 @@
     background-color: var(--SmartThemeBlurTintColor);
 }
 
-/* 터치 기기는 탭을 hover로 남기므로, 모바일에서는 구분선 편집 창에서만 지운다. */
-@media (hover: hover) {
+/* 터치 기기는 탭을 hover로 남기고 일부는 hover 지원으로 알리므로, 마우스 기기에서만 보인다. */
+@media (hover: hover) and (pointer: fine) {
     .foldy-divider:hover .foldy-divider-remove,
     .foldy-divider:focus-within .foldy-divider-remove {
         display: flex;
@@ -456,9 +456,9 @@
 
 .foldy-selection-toolbar {
     display: grid;
-    grid-template-columns: max-content max-content;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
     align-items: center;
-    justify-content: start;
+    justify-content: stretch;
     gap: 0.3em;
     padding: 0.45em;
     border: 1px solid var(--SmartThemeBorderColor);
@@ -480,6 +480,33 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.foldy-range-toggle {
+    margin: 0;
+    padding: 0.2em 0.4em;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: inherit;
+    font-size: 0.95em;
+    opacity: 0.5;
+    cursor: pointer;
+}
+
+.foldy-range-toggle.is-active {
+    opacity: 1;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 22%, transparent);
+}
+
+.foldy-range-toggle:disabled {
+    opacity: 0.2;
+    cursor: default;
+}
+
+.foldy-create-items-list label.foldy-range-anchor {
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 16%, transparent);
 }
 
 .foldy-create-items-list {
@@ -669,9 +696,9 @@
 
 .foldy-edit-form .foldy-selection-toolbar,
 .foldy-move-form .foldy-selection-toolbar {
-    grid-template-columns: max-content max-content;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
     gap: 0.3em;
-    justify-content: start;
+    justify-content: stretch;
 }
 
 .foldy-edit-form .foldy-create-items-list label,
@@ -818,7 +845,7 @@ button[hidden].foldy-lore-collapse-all {
     display: none !important;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt {
+#completion_prompt_manager #completion_prompt_manager_list.foldy-prompt-root li.completion_prompt_manager_prompt {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(5.5em, auto) auto;
     align-items: center;
@@ -845,17 +872,17 @@ button[hidden].foldy-lore-collapse-all {
     opacity: 0.6;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .completion_prompt_manager_prompt_name {
+#completion_prompt_manager #completion_prompt_manager_list.foldy-prompt-root li.completion_prompt_manager_prompt .completion_prompt_manager_prompt_name {
     min-width: 0;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls {
+#completion_prompt_manager #completion_prompt_manager_list.foldy-prompt-root li.completion_prompt_manager_prompt .prompt_manager_prompt_controls {
     gap: 0.35em;
     justify-content: flex-end;
     flex-wrap: nowrap;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_tokens {
+#completion_prompt_manager #completion_prompt_manager_list.foldy-prompt-root li.completion_prompt_manager_prompt .prompt_manager_prompt_tokens {
     min-width: 2.5em;
 }
 

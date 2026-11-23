@@ -8,6 +8,7 @@ import {
     nameKey,
     uniqueNameMap,
     uniqueNameIndex,
+    layoutShapeError,
 } from './bundle-utils.js';
 import {
     flattenLayout,
@@ -18,7 +19,7 @@ import {
     remapImportedLayout,
 } from './model.js';
 import { setupFolderSortables } from './folder-sortables.js';
-import { dividersFromFolderElement } from './folder-ui.js';
+import { dividersFromFolderElement, updateFolderCount } from './folder-ui.js';
 
 export function promptBundlePresetName(bundle) {
     if (bundle?.presetName) return String(bundle.presetName);
@@ -94,6 +95,16 @@ export function promptDomNodesFromList(list, { preserveFolderIds = new Set() } =
     return nodes;
 }
 
+// 드롭 후에는 다시 그리지 않으므로 폴더 개수(켜짐/전체)를 화면에서 바로 맞춘다.
+export function updatePromptFolderCounts(manager, list) {
+    const enabled = new Map(manager.getPromptOrderForCharacter(manager.activeCharacter)
+        .map(entry => [String(entry.identifier), entry.enabled === true]));
+    list.querySelectorAll(':scope > .foldy-folder').forEach(folder => updateFolderCount(folder, {
+        itemIdFromElement: item => item.dataset?.pmIdentifier,
+        isItemEnabled: id => enabled.get(String(id)) === true,
+    }));
+}
+
 export function createPromptSortables({
     getSortableDelay,
     promptOwnerKey,
@@ -127,6 +138,7 @@ export function createPromptSortables({
                     manager.render(false);
                     return;
                 }
+                updatePromptFolderCounts(manager, list);
                 const next = promptLayoutFromDom(manager, list, sourceLayout, { preserveFolderIds });
                 if (shouldRejectDomLayout(sourceLayout, next, '프롬프트')) {
                     manager.render(false);
@@ -213,8 +225,9 @@ export function createPromptBundleActions({
 
     async function importPromptLayoutBundle(bundle, manager) {
         if (!promptContextReady()) throw new Error('프리셋 전환이 끝난 뒤 폴더 구조를 불러와 주세요.');
-        if (!bundle?.layout) {
-            toastr.error('프롬프트 구조 번들에 폴더 구조가 없습니다.');
+        const shapeError = layoutShapeError(bundle?.layout, '프롬프트 구조');
+        if (shapeError) {
+            toastr.error(shapeError);
             return;
         }
         const currentPreset = promptExportName();
@@ -340,18 +353,27 @@ export function createPromptBundleActions({
             return;
         }
         const exists = presetManager?.getAllPresets?.().includes(presetName);
-        const existingPromptCount = exists ? (currentPromptPresetSettings(presetName)?.prompts || []).length : 0;
+        const existingPrompts = exists ? (currentPromptPresetSettings(presetName)?.prompts || []) : [];
         const importedPromptCount = bundle.prompts.filter(prompt => prompt?.identifier).length;
         const sourceLayoutIds = new Set(flattenLayout(bundle.layout));
         const importedPromptIds = new Set(bundle.prompts
             .filter(prompt => prompt?.identifier)
             .map(prompt => String(prompt.identifier)));
         const matchedLayoutCount = [...sourceLayoutIds].filter(id => importedPromptIds.has(String(id))).length;
+        // presetSettings가 있으면 기존 프리셋을 통째로 저장하므로 번들에 없는 프롬프트는 사라진다.
+        const replaces = exists && Boolean(bundle.presetSettings);
+        const keptPromptIds = new Set([...importedPromptIds, ...(bundle.presetSettings?.prompts || [])
+            .filter(prompt => prompt?.identifier)
+            .map(prompt => String(prompt.identifier))]);
         const layoutSummary = bundleImportSummary({
-            existingCount: existingPromptCount,
+            existingCount: existingPrompts.length,
             folderCount: Array.isArray(bundle.layout?.folders) ? bundle.layout.folders.length : 0,
             importedCount: importedPromptCount,
             matchedCount: matchedLayoutCount,
+            replaces,
+            removedCount: replaces
+                ? existingPrompts.filter(prompt => prompt?.identifier && !keptPromptIds.has(String(prompt.identifier))).length
+                : 0,
         });
         const confirmed = await confirmText('프롬프트 번들 불러오기', exists
             ? `기존 프롬프트 프리셋 "${presetName}"을 이 번들로 바꿀까요?\n\n${layoutSummary}\n\n계속할까요?`

@@ -53,6 +53,16 @@ export function isObjectRecord(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+export function isLayoutShape(layout) {
+    return isObjectRecord(layout) && Array.isArray(layout.root) && Array.isArray(layout.folders);
+}
+
+// 구조가 망가진 파일이 일반 오류로 끝나지 않도록 불러오기 전에 이유를 알려 준다.
+export function layoutShapeError(layout, label) {
+    if (!isObjectRecord(layout)) return `${label} 번들에 폴더 구조가 없습니다.`;
+    return isLayoutShape(layout) ? '' : `${label} 번들의 폴더 구조가 올바르지 않습니다.`;
+}
+
 export function hasValue(value) {
     // 0과 false도 유효한 식별자일 수 있다.
     return value !== undefined && value !== null && String(value) !== '';
@@ -137,14 +147,19 @@ export function bundleImportSummary({
     folderCount,
     importedCount,
     matchedCount,
+    replaces = false,
+    removedCount = 0,
 }) {
+    const warning = replaces
+        ? `⚠️ 현재 내용이 번들 내용으로 바뀝니다.${removedCount > 0 ? ` 번들에 없는 기존 항목 ${removedCount}개는 삭제됩니다.` : ''}`
+        : '⚠️ 불러오기 시 같은 항목은 덮어씌워집니다.';
     return [
         `기존 항목: ${existingCount}개`,
         `가져올 폴더: ${folderCount}개`,
         `가져올 항목: ${importedCount}개`,
         `매칭된 항목: ${matchedCount}개`,
         '',
-        '⚠️ 불러오기 시 같은 항목은 덮어씌워집니다.',
+        warning,
     ].join('\n');
 }
 
@@ -259,8 +274,9 @@ export function createBundleActions({
     }
 
     function assertLayoutBundleShape(bundle, label) {
-        if (!isObjectRecord(bundle.layout)) {
-            toastr.error(`${label} 번들에 폴더 구조가 없습니다.`);
+        const error = layoutShapeError(bundle.layout, label);
+        if (error) {
+            toastr.error(error);
             return false;
         }
         return true;

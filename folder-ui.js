@@ -42,14 +42,26 @@ export function bindAction(button, label, handler, {
     button.addEventListener('click', async event => {
         if (preventDefault) event.preventDefault();
         if (stopPropagation) event.stopPropagation();
+        // 처리 중에 다시 누르면 같은 대화상자가 겹쳐 열리고 먼저 닫은 쪽만 반영되므로 무시한다.
+        if (button.dataset.foldyBusy) return;
+        button.dataset.foldyBusy = '1';
         const action = () => handler(event);
-        if (typeof withErrorToast === 'function') {
-            await withErrorToast(label, action);
-            return;
+        try {
+            if (typeof withErrorToast === 'function') {
+                await withErrorToast(label, action);
+                return;
+            }
+            await action();
+        } finally {
+            delete button.dataset.foldyBusy;
         }
-        await action();
     });
     return button;
+}
+
+// 대화상자가 열린 사이 목록이 바뀌어 입력을 버릴 때 알린다.
+export function notifyStaleChange() {
+    globalThis.toastr?.info?.('그 사이 목록이 바뀌어 변경 내용을 적용하지 않았습니다. 다시 시도해 주세요.');
 }
 
 export function updateFolderCount(folderElement, { itemIdFromElement = null, isItemEnabled = null } = {}) {
@@ -181,19 +193,58 @@ export function createSelectionToolbar(list, titleText = '제목') {
     const title = document.createElement('span');
     title.className = 'foldy-selection-title';
     title.textContent = titleText;
+    // 범위 선택: 시작점과 끝점을 차례로 누르면 그 사이만 선택한다. 떨어진 선택은 만들지 않는다.
+    const rangeButton = document.createElement('button');
+    rangeButton.type = 'button';
+    rangeButton.className = 'foldy-range-toggle fa-solid fa-arrows-up-down';
+    rangeButton.title = '범위 선택';
+    let rangeMode = false;
+    let anchor = null;
+    const boxesOf = () => [...list.querySelectorAll('input[type="checkbox"]')];
+    const setAnchor = box => {
+        anchor?.closest('label')?.classList.remove('foldy-range-anchor');
+        anchor = box;
+        anchor?.closest('label')?.classList.add('foldy-range-anchor');
+    };
     const syncHeader = () => {
-        const boxes = [...list.querySelectorAll('input[type="checkbox"]')];
+        const boxes = boxesOf();
+        if (anchor && !list.contains(anchor)) setAnchor(null);
         const checked = boxes.filter(input => input.checked).length;
         master.disabled = !boxes.length;
         master.checked = boxes.length > 0 && checked === boxes.length;
         master.indeterminate = checked > 0 && checked < boxes.length;
+        rangeButton.disabled = boxes.length < 2;
     };
     master.addEventListener('input', () => {
-        list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = master.checked; });
+        boxesOf().forEach(input => { input.checked = master.checked; });
+        setAnchor(null);
+        syncHeader();
+    });
+    rangeButton.addEventListener('click', event => {
+        event.preventDefault();
+        rangeMode = !rangeMode;
+        rangeButton.classList.toggle('is-active', rangeMode);
+        setAnchor(null);
+    });
+    list.addEventListener('click', event => {
+        if (!rangeMode) return;
+        const box = event.target.closest('label')?.querySelector('input[type="checkbox"]');
+        if (!box || !list.contains(box)) return;
+        // 글씨를 눌렀을 때 체크박스로 클릭이 한 번 더 넘어가지 않게 한다.
+        if (event.target !== box) event.preventDefault();
+        const boxes = boxesOf();
+        if (!anchor) {
+            boxes.forEach(input => { input.checked = input === box; });
+            setAnchor(box);
+        } else {
+            const [from, to] = [boxes.indexOf(anchor), boxes.indexOf(box)].sort((a, b) => a - b);
+            boxes.forEach((input, index) => { input.checked = index >= from && index <= to; });
+            setAnchor(null);
+        }
         syncHeader();
     });
     list.addEventListener('input', syncHeader);
-    toolbar.append(master, title);
+    toolbar.append(master, title, rangeButton);
     queueMicrotask(syncHeader);
     return {
         toolbar,
@@ -386,20 +437,19 @@ export function createBorderSidesSetting(labelText, initialSides) {
     };
 }
 
-// 손가락 입력에서는 스크롤하다 구분선이 끌려가므로 drag-handle을 붙이지 않는다. 위치는 구분선 편집 창에서 바꾼다.
-function createDividerElement(onRemove, withErrorToast, locked = false) {
+// 손가락 입력에서는 스크롤하다 구분선이 끌려가고, hover를 지원한다고 알리는 기기는 탭만으로 삭제 버튼이 뜬다.
+// 그래서 끌기와 삭제 버튼을 모두 두지 않고, 위치와 삭제는 구분선 편집 창에서 한다.
+export function createDividerElement(onRemove, withErrorToast, locked = false) {
     const element = document.createElement('li');
     element.className = 'foldy-divider';
     const line = document.createElement('span');
     line.className = 'foldy-divider-line';
-    if (locked) {
+    if (locked || !canDragDividers()) {
         element.append(line);
         return element;
     }
-    if (canDragDividers()) {
-        line.classList.add('drag-handle');
-        line.title = '구분선 이동';
-    }
+    line.classList.add('drag-handle');
+    line.title = '구분선 이동';
     const remove = createIconButton('fa-xmark', '구분선 삭제', 'foldy-divider-remove');
     remove.addEventListener('click', event => {
         event.preventDefault();

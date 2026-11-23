@@ -1,6 +1,7 @@
 import {
     closeOpenFolderMenus,
     enabledState,
+    notifyStaleChange,
     updateFolderCount,
 } from './folder-ui.js';
 import { setupFolderSortables } from './folder-sortables.js';
@@ -14,6 +15,7 @@ import {
     nameKey,
     uniqueNameMap,
     uniqueNameIndex,
+    layoutShapeError,
 } from './bundle-utils.js';
 import {
     createRenderGate,
@@ -71,6 +73,18 @@ export function createRegexToggleHandler({ id, type, owner, isCurrent, getScript
             onError(error);
         }
     };
+}
+
+// 본체가 단 이름 없는 핸들러만 처음 한 번 뗀다. 다시 그릴 때 다른 확장이 이름을 붙여 단 핸들러는 건드리지 않는다.
+export function detachHostHandlersOnce(element, type, jq = globalThis.$) {
+    if (!element) return;
+    const $element = jq(element);
+    const flag = `foldyHostDetached-${type}`;
+    if ($element.data(flag)) return;
+    for (const entry of [...(jq._data(element, 'events')?.[type] || [])]) {
+        if (!entry.namespace) $element.off(type, entry.handler);
+    }
+    $element.data(flag, true);
 }
 
 export function regexLayoutFromDom(list, sourceLayout, allIds, options = {}) {
@@ -175,9 +189,12 @@ export function createRegexIntegration({
             },
         });
         // 아이콘은 jQuery trigger('input')을 사용하므로 네이티브 캡처 리스너로 차단할 수 없다.
-        $(checkbox).off('input').on('input.foldySafe', handler);
+        detachHostHandlersOnce(checkbox, 'input');
+        $(checkbox).off('input.foldySafe').on('input.foldySafe', handler);
         for (const [selector, disabled] of [['.regex-toggle-on', true], ['.regex-toggle-off', false]]) {
-            $(item.querySelector(selector)).off('click').on('click.foldySafe', event => {
+            const icon = item.querySelector(selector);
+            detachHostHandlersOnce(icon, 'click');
+            $(icon).off('click.foldySafe').on('click.foldySafe', event => {
                 // 같은 DOM을 유지하므로 label의 기본 클릭이 체크박스를 다시 뒤집지 않게 한다.
                 event.preventDefault();
                 $(checkbox).prop('checked', disabled).trigger('input');
@@ -200,16 +217,6 @@ export function createRegexIntegration({
         enhanceRegexLists();
     }
 
-    function removeFoldyRegexToggleHandlers(item) {
-        const checkbox = item.querySelector('.disable_regex');
-        const toggleOn = item.querySelector('.regex-toggle-on');
-        const toggleOff = item.querySelector('.regex-toggle-off');
-        if (!checkbox || !toggleOn || !toggleOff) return;
-        $(checkbox).off('.foldyRestore');
-        $(toggleOn).off('.foldyRestore');
-        $(toggleOff).off('.foldyRestore');
-    }
-
     function unwrapRegexFolders(list) {
         const $list = $(list);
         if ($list.data('foldySortable') && $list.sortable('instance')) $list.sortable('destroy');
@@ -226,7 +233,7 @@ export function createRegexIntegration({
             if (id && seen.has(id)) return;
             if (id) seen.add(id);
             item.querySelectorAll('.foldy-move-to-folder').forEach(button => button.remove());
-            removeFoldyRegexToggleHandlers(item);
+            // 본체 토글 핸들러는 이동 전 인덱스로 저장하므로 되살리지 않고 ID 기반 핸들러를 남긴다.
             items.push(item);
         });
         list.replaceChildren(...items);
@@ -324,6 +331,7 @@ export function createRegexIntegration({
         const regexContextChanged = () => regexOwnerKey(typeKey) !== owner || currentRegexLayouts[typeKey] !== layout;
         const rerenderIfRegexContextChanged = () => {
             if (!regexContextChanged()) return false;
+            notifyStaleChange();
             rerender();
             return true;
         };
@@ -612,8 +620,9 @@ export function createRegexBundleActions({
     }
 
     async function importRegexLayoutBundle(bundle, typeKey) {
-        if (!bundle?.layout) {
-            toastr.error('정규식 구조 번들에 폴더 구조가 없습니다.');
+        const shapeError = layoutShapeError(bundle?.layout, '정규식 구조');
+        if (shapeError) {
+            toastr.error(shapeError);
             return;
         }
         if (bundle.typeKey && bundle.typeKey !== typeKey) {
@@ -819,8 +828,9 @@ export function createRegexBundleActions({
         saveSettingsDebounced();
         const orderedScripts = orderItemsByLayout(layout, mergedScripts);
         await saveScriptsByType(orderedScripts, type, owner);
-        await refreshRegexScripts();
+        // 채팅을 다시 불러오면 본체가 CHAT_CHANGED로 정규식 목록을 다시 그리므로 따로 발생시키지 않는다.
         if (getCurrentChatId()) await reloadCurrentChat();
+        else await refreshRegexScripts();
         enhanceRegexLists();
         renameTracker.notify();
         toastr.success('정규식 번들을 불러왔습니다.');
