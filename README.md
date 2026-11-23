@@ -6,9 +6,9 @@ SillyTavern의 프롬프트, 로어북(월드 인포), 정규식 목록에 폴�
 ## 미리보기
 |프롬프트 리스트|폴더 설정|
 |---|---|
-|<img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset-Foldy/Prompts%20List.png">|<img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset-Foldy/Folder%20Options.png"> |
+|<img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset/Foldy-Prompts_List.png">|<img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset/Foldy-Folder_Options.png"> |
 |(정규식)내보내기|(로어북) 설정 일괄변경| 
-| <img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset-Foldy/Regex%20Export.webp"> | <img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset-Foldy/World_options.png"> |
+| <img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset/Foldy-Regex_Export.webp"> | <img src="https://raw.githubusercontent.com/st-chd/chd-asset/refs/heads/main/Asset/Foldy-World_options.png"> |
 
 
 ## 주요 기능
