@@ -474,8 +474,7 @@ export function createRegexIntegration({
             );
             rerender();
         };
-        const createHostTypeKey = Object.keys(regexTypes).find(key => document.querySelector(regexTypes[key].selector));
-        const toolbar = ensureToolbar(list.parentElement, `regex-${typeKey}`, typeKey === createHostTypeKey ? onCreate : null, [
+        const toolbar = ensureToolbar(list.parentElement, `regex-${typeKey}`, onCreate, [
             createRootBulkMoveButton(async () => {
                 const labels = new Map([...scriptsById.entries()].map(([scriptId, script]) => [
                     String(scriptId),
